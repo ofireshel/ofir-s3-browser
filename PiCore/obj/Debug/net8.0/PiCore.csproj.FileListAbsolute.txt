@@ -1,0 +1,12 @@
+/workspace/PiCore/bin/Debug/net8.0/PiCore.deps.json
+/workspace/PiCore/bin/Debug/net8.0/PiCore.dll
+/workspace/PiCore/bin/Debug/net8.0/PiCore.pdb
+/workspace/PiCore/obj/Debug/net8.0/PiCore.GeneratedMSBuildEditorConfig.editorconfig
+/workspace/PiCore/obj/Debug/net8.0/PiCore.AssemblyInfoInputs.cache
+/workspace/PiCore/obj/Debug/net8.0/PiCore.AssemblyInfo.cs
+/workspace/PiCore/obj/Debug/net8.0/PiCore.csproj.CoreCompileInputs.cache
+/workspace/PiCore/obj/Debug/net8.0/PiCore.sourcelink.json
+/workspace/PiCore/obj/Debug/net8.0/PiCore.dll
+/workspace/PiCore/obj/Debug/net8.0/refint/PiCore.dll
+/workspace/PiCore/obj/Debug/net8.0/PiCore.pdb
+/workspace/PiCore/obj/Debug/net8.0/ref/PiCore.dll
