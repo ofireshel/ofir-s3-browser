@@ -1,0 +1,25 @@
+{
+  "name": "ofir-s3-browser-server",
+  "version": "1.0.0",
+  "description": "A realistic static file server for Ofir's S3 Browser application",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "test": "node --test",
+    "health": "curl -s http://localhost:3030/health | jq ."
+  },
+  "keywords": [
+    "static-server",
+    "file-server",
+    "http-server",
+    "s3-browser"
+  ],
+  "author": "Ofir",
+  "license": "MIT",
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "devDependencies": {},
+  "dependencies": {}
+}

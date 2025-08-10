@@ -1,0 +1,743 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LexiOrbit</title>
+  <style>
+    html, body { 
+      height: 100%; margin: 0; 
+      font-family: 'Segoe UI', Arial, sans-serif; 
+      background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); 
+      color: #e2e8f0; overflow: hidden; 
+    }
+    #app { 
+      position: fixed; inset: 0; 
+      display: grid; grid-template-rows: auto 1fr auto; 
+    }
+    header { 
+      display:flex; align-items:center; gap:12px; padding:12px 16px; 
+      background: rgba(14,23,42,0.95); backdrop-filter: blur(8px); 
+      border-bottom:1px solid #334155; box-shadow: 0 2px 8px rgba(0,0,0,0.3); 
+    }
+    header h1 { 
+      font-size:20px; margin:0; font-weight:700; 
+      background: linear-gradient(45deg, #60a5fa, #a78bfa); 
+      background-clip: text; -webkit-background-clip: text; 
+      -webkit-text-fill-color: transparent; 
+    }
+    header a { 
+      color:#93c5fd; text-decoration:none; font-size:14px; 
+      padding:6px 12px; border-radius:6px; transition: all 0.2s; 
+    }
+    header a:hover { background: rgba(147,197,253,0.1); }
+    #hud { 
+      display:flex; gap:16px; align-items:center; padding:12px 16px; 
+      background: rgba(14,23,42,0.95); backdrop-filter: blur(8px); 
+      border-top:1px solid #334155; box-shadow: 0 -2px 8px rgba(0,0,0,0.3); 
+      position: relative;
+    }
+    #category { font-weight:800; font-size:44px; color:#fbbf24; letter-spacing:0.2px; }
+    #timeBlock { position:absolute; left:50%; transform:translateX(-50%); display:flex; align-items:center; gap:10px; }
+    #timeLabel { color:#94a3b8; font-weight:800; font-size:28px; }
+    #timer { 
+      font-variant-numeric: tabular-nums; font-weight:900; 
+      color:#ef4444; font-size:52px; text-shadow: 0 0 12px currentColor; 
+    }
+    /* Word input removed */
+    button { 
+      padding:10px 16px; border-radius:8px; border:2px solid #475569; 
+      background: linear-gradient(135deg, #1e293b, #334155); 
+      color:#e2e8f0; cursor:pointer; font-weight:600; 
+      transition: all 0.2s; 
+    }
+    button:hover { 
+      background: linear-gradient(135deg, #334155, #475569); 
+      border-color:#60a5fa; transform: translateY(-1px); 
+    }
+    #gameCanvas { 
+      position: absolute; top: 0; left: 0; 
+      width: 100%; height: 100%; 
+      cursor: pointer; 
+    }
+    #stage { height: 100%; overflow: hidden; position: relative; }
+    .chip { 
+      padding:6px 12px; border-radius:999px; border:1px solid #475569; 
+      background: rgba(30,41,59,0.8); font-size:13px; font-weight:500; 
+    }
+    #log { 
+      position: absolute; left: 20px; bottom: 120px; 
+      background: rgba(2,6,23,0.9); border:1px solid #334155; 
+      border-radius:12px; padding:12px 16px; font-size:14px; 
+      max-width: 50ch; pointer-events:none; 
+      box-shadow: 0 4px 12px rgba(0,0,0,0.4); 
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <header>
+      <h1>LexiOrbit</h1>
+      <span class="chip" id="roundChip">Round 1</span>
+      
+    </header>
+    <div id="stage">
+      <canvas id="gameCanvas"></canvas>
+      <div id="log"></div>
+    </div>
+    <div id="hud">
+      <span>Category:</span>
+      <span id="category"></span>
+      <span style="margin-left:auto"></span>
+      <span id="timeBlock"><span id="timeLabel">Time:</span><span id="timer">10.0</span></span>
+      <div id="wordForm" style="display:flex; gap:10px; align-items:center;">
+        <button type="button" id="newRoundBtn">New Round</button>
+        <button type="button" id="shuffleCatBtn">Shuffle Category</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    console.log('Starting Tapple game with 2D Canvas...');
+    
+    // Game state
+    let gameState = {
+      currentCategory: '',
+      letters: 'ABCDEFGHIJKLMNOPQRST'.split(''),
+      usedLetters: new Set(),
+      timeLeft: 10.0,
+      round: 1,
+      gameActive: false,
+      selectedLetter: null,
+      // Per-turn state: whether a new letter was pressed during the current 10s window
+      turnHasPressed: false,
+      overlayMessage: '',
+      overlayScoreText: '',
+      warningTickerActive: false
+    };
+
+    // Default Top Players shown until server responds
+    window.__topScores = {
+      top5: [
+        { player: 'Ofir', avg: 0.85 },
+        { player: 'Dana', avg: 0.76 },
+        { player: 'Avi', avg: 0.75 },
+        { player: 'Noa', avg: 0.71 },
+        { player: 'Lior', avg: 0.57 }
+      ]
+    };
+
+    // Audio context for sounds
+    let audioCtx;
+    try {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    } catch (e) {
+      console.warn('Audio not available:', e);
+    }
+
+    function playSound(type) {
+      if (!audioCtx) return;
+      
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      
+      const now = audioCtx.currentTime;
+      const dur = (type === 'tick') ? 0.12 : 0.3;
+      gain.gain.setValueAtTime(type === 'tick' ? 0.08 : 0.1, now);
+      gain.gain.exponentialRampToValueAtTime(0.006, now + dur);
+      
+      switch(type) {
+        case 'click': osc.frequency.setValueAtTime(800, now); break;
+        case 'success': osc.frequency.setValueAtTime(1200, now); break;
+        case 'buzz': osc.frequency.setValueAtTime(200, now); break;
+        case 'start': osc.frequency.setValueAtTime(600, now); break;
+        case 'tick': osc.frequency.setValueAtTime(2000, now); break;
+      }
+      
+      osc.start(now);
+      osc.stop(now + (type === 'tick' ? 0.08 : 0.3));
+    }
+
+    // Warning ticker that beeps as a turn is about to end
+    let warningInterval = null;
+    function startWarningTicker() {
+      if (gameState.warningTickerActive) return;
+      gameState.warningTickerActive = true;
+      warningInterval = setInterval(() => {
+        if (!gameState.gameActive) return;
+        playSound('tick');
+      }, 250);
+    }
+    function stopWarningTicker() {
+      if (warningInterval) clearInterval(warningInterval);
+      warningInterval = null;
+      gameState.warningTickerActive = false;
+    }
+
+    // Background word data per category (sampled lists)
+    const BASE_BANK = {
+      'Animals': ['Antelope','Aardvark','Albatross','Bear','Buffalo','Beaver','Cat','Cougar','Cheetah','Dog','Dolphin','Deer','Eagle','Eel','Emu','Fox','Falcon','Giraffe','Goat','Horse','Hare','Hedgehog','Iguana','Impala','Jaguar','Jay','Kangaroo','Koala','Lion','Lemur','Leopard','Monkey','Moose','Newt','Nightingale','Owl','Otter','Panda','Penguin','Quail','Quokka','Rabbit','Raccoon','Shark','Sheep','Tiger','Turtle','Urchin','Vulture','Wolf','Walrus','Xerus','Yak','Zebra'],
+      'Food & Drink': ['Apple','Avocado','Bagel','Bread','Burger','Cake','Cookie','Dumpling','Donut','Egg','Edamame','Falafel','Fried Rice','Grape','Granola','Hummus','Honey','Ice Tea','Ice Cream','Juice','Jam','Kebab','Kale','Lemonade','Lasagna','Mango','Muffin','Noodles','Nachos','Orange','Omelet','Pizza','Pasta','Quiche','Quesadilla','Ramen','Risotto','Sushi','Salad','Taco','Toast','Udon','Ugali','Vanilla','Veggies','Waffle','Walnut','Xacuti','Yogurt','Ziti'],
+      'Countries': ['Argentina','Australia','Austria','Brazil','Belgium','Canada','Chile','China','Colombia','Denmark','Dominican Republic','Egypt','Estonia','Finland','France','Germany','Greece','Hungary','Iceland','India','Indonesia','Ireland','Israel','Italy','Japan','Jordan','Kenya','Kuwait','Lebanon','Luxembourg','Mexico','Morocco','Netherlands','New Zealand','Nigeria','Norway','Oman','Pakistan','Peru','Philippines','Poland','Portugal','Qatar','Romania','Russia','Saudi Arabia','Singapore','South Africa','Spain','Sweden','Switzerland','Thailand','Turkey','Uganda','Ukraine','United Kingdom','United States','Uruguay','Venezuela','Vietnam'],
+      'Movies': ['Avatar','Alien','Amelie','Batman','Braveheart','Casablanca','Coco','Dune','Drive','Eternals','Ex Machina','Frozen','Ford v Ferrari','Gladiator','Gravity','Heat','Her','Inception','Interstellar','Joker','Jaws','Kill Bill','King Kong','Lion King','Logan','Matrix','Mad Max','Nope','Oblivion','Parasite','Prestige','Pulp Fiction','Quantum of Solace','Ratatouille','Rocky','Skyfall','Spirited Away','Titanic','Top Gun','Up','Unforgiven','Vertigo','Whiplash','X-Men','Yesterday','Zodiac'],
+      'Sports': ['Archery','Athletics','Badminton','Baseball','Basketball','Boxing','Cricket','Cycling','Diving','Equestrian','Fencing','Football','Golf','Gymnastics','Handball','Hockey','Ice Hockey','Judo','Karate','Kayaking','Lacrosse','Motorsport','Netball','Rowing','Rugby','Sailing','Skiing','Snowboarding','Surfing','Swimming','Table Tennis','Taekwondo','Tennis','Triathlon','Volleyball','Water Polo','Wrestling'],
+      'Colors': ['Amber','Aqua','Beige','Black','Blue','Bronze','Crimson','Cyan','Cerulean','Emerald','Fuchsia','Gold','Gray','Green','Indigo','Ivory','Jade','Khaki','Lavender','Lime','Magenta','Maroon','Navy','Olive','Orange','Peach','Pink','Purple','Red','Rose','Scarlet','Silver','Teal','Turquoise','Ultramarine','Violet','White','Yellow'],
+      'Professions': ['Accountant','Architect','Artist','Baker','Barber','Biologist','Carpenter','Chef','Chemist','Dentist','Designer','Doctor','Driver','Engineer','Electrician','Farmer','Firefighter','Gardener','Geologist','Judge','Journalist','Lawyer','Librarian','Mechanic','Nurse','Optician','Painter','Pharmacist','Photographer','Pilot','Plumber','Programmer','Scientist','Singer','Teacher','Translator','Veterinarian','Writer'],
+      'School Supplies': ['Agenda','Backpack','Binder','Book','Calculator','Chalk','Compass','Crayons','Eraser','Folder','Glue','Highlighter','Index Cards','Markers','Notebook','Paper','Pen','Pencil','Protractor','Ruler','Scissors','Stapler','Tape'],
+      'Clothing': ['Anorak','Apron','Blazer','Boots','Cap','Coat','Dress','Gloves','Hat','Hoodie','Jeans','Jacket','Kimono','Leggings','Pajamas','Pants','Raincoat','Scarf','Shirt','Shoes','Shorts','Skirt','Suit','Sweater','T-Shirt','Tie','Underwear','Vest'],
+      'Musical Instruments': ['Accordion','Banjo','Bassoon','Cello','Clarinet','Drum','Euphonium','Flute','Gong','Guitar','Harp','Horn','Ivory Keys','Jarana','Keyboard','Lute','Mandolin','Nyckelharpa','Oboe','Organ','Piano','Qanun','Recorder','Saxophone','Trombone','Trumpet','Tuba','Ukulele','Viola','Violin','Whistle','Xylophone','Yueqin','Zither'],
+      'Things in the Kitchen': ['Apron','Bowl','Bottle','Cup','Colander','Dish','Drawer','Egg Timer','Fork','Frying Pan','Grater','Glass','Jar','Jug','Knife','Kettle','Ladle','Mug','Microwave','Oven','Plate','Pot','Pan','Peeler','Rolling Pin','Sieve','Spatula','Spoon','Toaster','Tongs','Whisk'],
+      'Board Games': ['Azul','Blokus','Carcassonne','Catan','Chess','Clank','Dominion','Everdell','Exploding Kittens','Go','Gloomhaven','Hive','Innovation','Jaipur','Kingdomino','Love Letter','Monopoly','Pandemic','Patchwork','Qwirkle','Risk','Scythe','Scrabble','Splendor','Terraforming Mars','Ticket to Ride','Uno','Viticulture','Wingspan','Zombicide'],
+      'TV Shows': ['Arrow','Barry','Breaking Bad','Community','Chernobyl','Dexter','Dark','Euphoria','Friends','Fargo','Game of Thrones','Hannibal','House','Invincible','Justified','Lost','Loki','Mad Men','Narcos','Office','Ozark','Peaky Blinders','Prison Break','Queen’s Gambit','Raised by Wolves','Sherlock','Severance','Sopranos','Succession','Ted Lasso','The Wire','Vikings','Westworld','Yellowjackets'],
+      'Books': ['Animal Farm','Beowulf','Catch-22','Dune','Emma','Fahrenheit 451','Gatsby','Hamlet','Iliad','Jane Eyre','King Lear','Les Miserables','Macbeth','Narnia','Odyssey','Pride and Prejudice','Rebecca','Siddhartha','Ulysses','War and Peace','Wuthering Heights'],
+      'Superheroes': ['Ant-Man','Aquaman','Batman','Black Panther','Black Widow','Captain America','Captain Marvel','Cyclops','Daredevil','Doctor Strange','Flash','Green Lantern','Hawkeye','Hulk','Iron Man','Jean Grey','Jubilee','Jessica Jones','Luke Cage','Ms Marvel','Nightcrawler','Quicksilver','Robin','Scarlet Witch','Spider-Man','Star-Lord','Storm','Superman','Thor','Wasp','Wolverine','Wonder Woman','Zatanna'],
+      'Car Brands': ['Acura','Alfa Romeo','Aston Martin','Audi','Bentley','BMW','Bugatti','Cadillac','Chevrolet','Chrysler','Citroen','Dacia','Dodge','Ferrari','Fiat','Ford','GMC','Honda','Hyundai','Infiniti','Isuzu','Jaguar','Jeep','Kia','Lamborghini','Land Rover','Lexus','Lincoln','Maserati','Mazda','McLaren','Mercedes','Mini','Mitsubishi','Nissan','Opel','Peugeot','Porsche','Renault','Rolls-Royce','Seat','Skoda','Subaru','Suzuki','Tesla','Toyota','Volkswagen','Volvo'],
+      'Fruits': ['Apple','Apricot','Avocado','Banana','Blackberry','Blueberry','Cherry','Coconut','Cranberry','Date','Durian','Elderberry','Fig','Grape','Grapefruit','Guava','Honeydew','Jackfruit','Kiwi','Kumquat','Lemon','Lime','Lychee','Mango','Mulberry','Nectarine','Orange','Papaya','Peach','Pear','Persimmon','Pineapple','Plum','Pomegranate','Quince','Raspberry','Strawberry','Tangerine','Ugli fruit','Watermelon','Yuzu','Ziziphus'],
+      'Vegetables': ['Artichoke','Asparagus','Beetroot','Broccoli','Brussels Sprout','Cabbage','Carrot','Cauliflower','Celery','Corn','Daikon','Eggplant','Endive','Fennel','Garlic','Ginger','Horseradish','Iceberg Lettuce','Jalapeno','Jicama','Kale','Leek','Lettuce','Mushroom','Okra','Onion','Parsnip','Pea','Pepper','Potato','Pumpkin','Radish','Rutabaga','Spinach','Squash','Turnip','Ube','Watercress','Yam','Zucchini'],
+      'Dog Breeds': ['Akita','Beagle','Border Collie','Bulldog','Chihuahua','Corgi','Dalmatian','Doberman','Eskimo Dog','French Bulldog','German Shepherd','Golden Retriever','Greyhound','Husky','Irish Setter','Jack Russell Terrier','Keeshond','Labrador Retriever','Maltese','Mastiff','Newfoundland','Old English Sheepdog','Poodle','Pug','Rottweiler','Samoyed','Shiba Inu','Shih Tzu','Terrier','Vizsla','Weimaraner','Whippet','Xoloitzcuintli','Yorkshire Terrier','Zuchon'],
+      'Birds': ['Albatross','Bluebird','Canary','Crane','Dove','Duck','Eagle','Egret','Falcon','Finch','Goose','Gull','Hawk','Heron','Ibis','Jay','Kingfisher','Kite','Lark','Magpie','Nightingale','Osprey','Owl','Parrot','Pelican','Quail','Raven','Robin','Sparrow','Starling','Swallow','Swan','Tern','Toucan','Vulture','Warbler','Woodpecker','Xantus Hummingbird','Yellowhammer','Zebra Finch'],
+      'Languages': ['Arabic','Bengali','Chinese','Dutch','English','French','German','Hindi','Italian','Japanese','Korean','Lithuanian','Malay','Nepali','Oromo','Persian','Polish','Portuguese','Quechua','Russian','Spanish','Swahili','Turkish','Ukrainian','Urdu','Vietnamese','Welsh','Xhosa','Yoruba','Zulu'],
+      'Elements': ['Actinium','Aluminium','Americium','Argon','Arsenic','Barium','Beryllium','Bismuth','Boron','Bromine','Cadmium','Calcium','Carbon','Cerium','Chlorine','Chromium','Cobalt','Copper','Curium','Dubnium','Dysprosium','Einsteinium','Erbium','Europium','Fluorine','Francium','Gadolinium','Gallium','Germanium','Gold','Hafnium','Helium','Holmium','Hydrogen','Indium','Iodine','Iridium','Iron','Krypton','Lanthanum','Lithium','Magnesium','Manganese','Mercury','Molybdenum','Neon','Nickel','Niobium','Nitrogen','Osmium','Oxygen','Palladium','Phosphorus','Platinum','Plutonium','Potassium','Radium','Radon','Rhenium','Rhodium','Rubidium','Ruthenium','Samarium','Scandium','Selenium','Silicon','Silver','Sodium','Strontium','Sulfur','Tantalum','Technetium','Tellurium','Terbium','Thallium','Thorium','Thulium','Tin','Titanium','Tungsten','Uranium','Vanadium','Xenon','Ytterbium','Yttrium','Zinc','Zirconium'],
+      'US States': ['Alabama','Alaska','Arizona','Arkansas','California','Colorado','Connecticut','Delaware','Florida','Georgia','Hawaii','Idaho','Illinois','Indiana','Iowa','Kansas','Kentucky','Louisiana','Maine','Maryland','Massachusetts','Michigan','Minnesota','Mississippi','Missouri','Montana','Nebraska','Nevada','New Hampshire','New Jersey','New Mexico','New York','North Carolina','North Dakota','Ohio','Oklahoma','Oregon','Pennsylvania','Rhode Island','South Carolina','South Dakota','Tennessee','Texas','Utah','Vermont','Virginia','Washington','West Virginia','Wisconsin','Wyoming'],
+      'World Capitals': ['Abuja','Accra','Addis Ababa','Algiers','Amman','Ankara','Antananarivo','Athens','Baghdad','Baku','Bamako','Bangkok','Beijing','Beirut','Belgrade','Berlin','Bern','Bogota','Brasilia','Bratislava','Brazzaville','Brussels','Bucharest','Budapest','Buenos Aires','Cairo','Canberra','Caracas','Chisinau','Colombo','Conakry','Copenhagen','Dakar','Damascus','Dhaka','Doha','Dublin','Edinburgh','Hanoi','Harare','Havana','Helsinki','Islamabad','Jakarta','Kabul','Kampala','Kathmandu','Khartoum','Kigali','Kiev','Kuala Lumpur','Kuwait City','La Paz','Lima','Lisbon','Ljubljana','London','Luanda','Lusaka','Madrid','Manila','Maputo','Marrakesh','Minsk','Mogadishu','Monaco','Montevideo','Moscow','Muscat','Nairobi','New Delhi','Nicosia','Oslo','Ottawa','Paris','Phnom Penh','Podgorica','Prague','Pretoria','Quito','Rabat','Reykjavik','Riyadh','Rome','Sana\'a','Santiago','Seoul','Singapore','Skopje','Sofia','Stockholm','Suva','Taipei','Tallinn','Tashkent','Tbilisi','Tegucigalpa','Tehran','Tokyo','Tripoli','Tunis','Ulaanbaatar','Vaduz','Valletta','Vienna','Vientiane','Vilnius','Warsaw','Wellington','Windhoek','Yerevan','Zagreb'],
+      'Flowers': ['Azalea','Begonia','Carnation','Daffodil','Edelweiss','Freesia','Gardenia','Hibiscus','Hyacinth','Hydrangea','Iris','Jasmine','Kalanchoe','Lavender','Lilac','Lily','Marigold','Nasturtium','Orchid','Peony','Petunia','Poppy','Queen Anne\'s Lace','Rose','Sunflower','Tulip','Verbena','Violet','Wisteria','Yarrow','Zinnia'],
+      'Desserts': ['Apple Pie','Baklava','Brownie','Cheesecake','Churro','Donut','Eclair','Flan','Gelato','Halva','Ice Cream','Jelly Roll','Key Lime Pie','Lava Cake','Mochi','Nougat','Opera Cake','Panna Cotta','Pavlova','Pudding','Quindim','Roulade','Sorbet','Tiramisu','Trifle','Upside-Down Cake','Waffle','Yogurt Parfait','Zeppole']
+    };
+    // Five more rich categories
+    BASE_BANK['Music Genres'] = ['Ambient','Afrobeat','Bluegrass','Blues','Bossa Nova','Classical','Country','Dance','Disco','Dub','Dubstep','EDM','Electro','Folk','Funk','Gospel','Grime','Grunge','Hard Rock','Hip Hop','House','Industrial','Jazz','J-Pop','K-Pop','Latin','Metal','Opera','Pop','Punk','R&B','Rap','Reggae','Rock','Salsa','Ska','Soul','Techno','Trance'];
+    BASE_BANK['Trees'] = ['Alder','Ash','Aspen','Baobab','Beech','Birch','Cedar','Chestnut','Cypress','Dogwood','Eucalyptus','Elm','Fir','Ginkgo','Hawthorn','Ironwood','Juniper','Kapok','Larch','Mahogany','Maple','Neem','Oak','Olive','Palm','Pine','Poplar','Quercus','Redwood','Sequoia','Spruce','Sycamore','Tamarind','Teak','Umbrella Thorn','Walnut','Willow','Yew','Zelkova'];
+    BASE_BANK['Sea Creatures'] = ['Anglerfish','Barracuda','Clam','Crab','Damselfish','Dolphin','Eel','Grouper','Halibut','Isopod','Jellyfish','Krill','Lobster','Manta Ray','Moray Eel','Nudibranch','Octopus','Orca','Parrotfish','Quahog','Ray','Seahorse','Sea Turtle','Shrimp','Shark','Squid','Starfish','Stingray','Urchin','Vampire Squid','Whale','Wrasse','Xiphias','Yellowtail','Zebra Shark'];
+    BASE_BANK['Accessories'] = ['Backpack','Belt','Beret','Bow Tie','Bracelet','Brooch','Cap','Cufflinks','Earrings','Glasses','Gloves','Hairclip','Handbag','Hat','Headband','Necklace','Ring','Scarf','Shawl','Stockings','Suspenders','Tie','Umbrella','Wallet','Watch'];
+    BASE_BANK['Spices & Herbs'] = ['Allspice','Anise','Basil','Bay Leaf','Cardamom','Caraway','Chili','Chives','Cilantro','Cinnamon','Clove','Coriander','Cumin','Dill','Fennel','Fenugreek','Garlic','Ginger','Horseradish','Lavender','Mace','Mint','Mustard','Nutmeg','Oregano','Paprika','Parsley','Pepper','Rosemary','Saffron','Sage','Sumac','Tarragon','Thyme','Turmeric','Wasabi'];
+    // Expand to 100+ categories by adding region/thematic variants of well-known bases
+    const CATEGORY_BANK = { ...BASE_BANK };
+    const regionVariants = ['in Africa','in Asia','in Europe','in North America','in South America','in Oceania','in the Middle East'];
+    // Countries by region (representative lists; sufficient coverage for gameplay)
+    /* Remove regional country categories per request
+    const REGION_COUNTRIES = {
+      'Africa': ['Algeria','Angola','Benin','Botswana','Burkina Faso','Burundi','Cameroon','Cape Verde','Central African Republic','Chad','Comoros','Congo','Democratic Republic of the Congo','Djibouti','Egypt','Equatorial Guinea','Eritrea','Eswatini','Ethiopia','Gabon','Gambia','Ghana','Guinea','Guinea-Bissau','Ivory Coast','Kenya','Lesotho','Liberia','Libya','Madagascar','Malawi','Mali','Mauritania','Mauritius','Morocco','Mozambique','Namibia','Niger','Nigeria','Rwanda','São Tomé and Príncipe','Senegal','Seychelles','Sierra Leone','Somalia','South Africa','South Sudan','Sudan','Tanzania','Togo','Tunisia','Uganda','Zambia','Zimbabwe'],
+      'Asia': ['Afghanistan','Armenia','Azerbaijan','Bahrain','Bangladesh','Bhutan','Brunei','Cambodia','China','Cyprus','Georgia','India','Indonesia','Iran','Iraq','Israel','Japan','Jordan','Kazakhstan','Kuwait','Kyrgyzstan','Laos','Lebanon','Malaysia','Maldives','Mongolia','Myanmar','Nepal','North Korea','Oman','Pakistan','Palestine','Philippines','Qatar','Russia','Saudi Arabia','Singapore','South Korea','Sri Lanka','Syria','Taiwan','Tajikistan','Thailand','Timor-Leste','Turkey','Turkmenistan','United Arab Emirates','Uzbekistan','Vietnam','Yemen'],
+      'Europe': ['Albania','Andorra','Austria','Belarus','Belgium','Bosnia and Herzegovina','Bulgaria','Croatia','Cyprus','Czech Republic','Denmark','Estonia','Finland','France','Germany','Greece','Hungary','Iceland','Ireland','Italy','Kosovo','Latvia','Liechtenstein','Lithuania','Luxembourg','Malta','Moldova','Monaco','Montenegro','Netherlands','North Macedonia','Norway','Poland','Portugal','Romania','San Marino','Serbia','Slovakia','Slovenia','Spain','Sweden','Switzerland','Ukraine','United Kingdom','Vatican City'],
+      'North America': ['Antigua and Barbuda','Bahamas','Barbados','Belize','Canada','Costa Rica','Cuba','Dominica','Dominican Republic','El Salvador','Grenada','Guatemala','Haiti','Honduras','Jamaica','Mexico','Nicaragua','Panama','Saint Kitts and Nevis','Saint Lucia','Saint Vincent and the Grenadines','Trinidad and Tobago','United States'],
+      'South America': ['Argentina','Bolivia','Brazil','Chile','Colombia','Ecuador','Guyana','Paraguay','Peru','Suriname','Uruguay','Venezuela'],
+      'Oceania': ['Australia','Fiji','Kiribati','Marshall Islands','Micronesia','Nauru','New Zealand','Palau','Papua New Guinea','Samoa','Solomon Islands','Tonga','Tuvalu','Vanuatu'],
+      'the Middle East': ['Bahrain','Cyprus','Egypt','Iran','Iraq','Israel','Jordan','Kuwait','Lebanon','Oman','Palestine','Qatar','Saudi Arabia','Syria','Turkey','United Arab Emirates','Yemen']
+    };
+    regionVariants.forEach(v => { const key = v.replace('in ',''); if (REGION_COUNTRIES[key]) CATEGORY_BANK[`Countries ${v}`] = REGION_COUNTRIES[key]; });
+    */
+
+    // Add 5 fresh creative, broad categories with rich A–Z coverage
+    CATEGORY_BANK['Famous Landmarks'] = ['Acropolis','Angkor Wat','Big Ben','Brandenburg Gate','Burj Khalifa','Christ the Redeemer','Colosseum','Eiffel Tower','Great Barrier Reef','Great Wall','Golden Gate Bridge','Hagia Sophia','Iguazu Falls','Jerusalem Old City','Kremlin','Leaning Tower of Pisa','Machu Picchu','Mount Fuji','Niagara Falls','Petra','Pyramids of Giza','Sagrada Familia','Stonehenge','Sydney Opera House','Taj Mahal','Uluru','Victoria Falls','Yellowstone','Zion National Park'];
+    CATEGORY_BANK['Space Missions'] = ['Apollo','Artemis','BepiColombo','Cassini','Chandrayaan','Dawn','Galileo','Gemini','Hayabusa','Juno','Kepler','Luna','Mars Express','Messenger','New Horizons','OSIRIS-REx','Pioneer','Rosetta','Soyuz','Sputnik','Tianwen','Vega','Voyager','Viking'];
+    CATEGORY_BANK['Mythical Creatures'] = ['Banshee','Basilisk','Centaur','Cerberus','Cyclops','Dragon','Dryad','Elf','Fairy','Griffin','Gorgon','Hydra','Imp','Jinn','Kraken','Leprechaun','Mermaid','Minotaur','Nymph','Ogre','Pegasus','Phoenix','Selkie','Siren','Sprite','Troll','Unicorn','Valkyrie','Werewolf','Wyvern','Yeti','Ziz'];
+    CATEGORY_BANK['Cooking Verbs'] = ['Bake','Blend','Boil','Broil','Caramelize','Chop','Dice','Ferment','Fry','Grate','Grill','Knead','Marinate','Mix','Poach','Roast','Saute','Sear','Season','Simmer','Slice','Steam','Stir','Toast','Whisk','Zest'];
+    CATEGORY_BANK['Tools'] = ['Axe','Anvil','Brace','Chisel','Clamp','Crimper','Crowbar','Drill','File','Hammer','Hacksaw','Jigsaw','Knife','Level','Mallet','Measuring Tape','Pliers','Plane','Rasp','Router','Saw','Screwdriver','Sledgehammer','Soldering Iron','Square','Trowel','Vise','Wrench'];
+
+    // Categories: keep only those with at least 10-letter coverage in CATEGORY_BANK
+    const categories = Object.keys(CATEGORY_BANK)
+      .filter(cat => {
+        const words = CATEGORY_BANK[cat] || [];
+        const letters = new Set(words.map(w => (w && w[0] ? w[0].toUpperCase() : '')));
+        letters.delete('');
+        return letters.size >= 10;
+      })
+      .sort();
+
+    // Canvas setup
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    
+    let backgroundWords = [];
+    let bgLayout = null; // cached [{x,y,rot,size,word}]
+    let bgKey = '';
+    let bgDims = { w: 0, h: 0 };
+    function resetBgLayout() { bgLayout = null; bgKey = ''; }
+    function computeBgLayout(wordsToDraw, cssW, cssH) {
+      const sprites = [];
+      const count = 48;
+      for (let i = 0; i < count; i++) {
+        const size = Math.floor(24 + Math.random() * 64);
+        const x = Math.random() * cssW;
+        const y = Math.random() * cssH * 0.8;
+        const rot = (Math.random() - 0.5) * 0.35;
+        const word = wordsToDraw[Math.floor(Math.random() * wordsToDraw.length)];
+        sprites.push({ x, y, rot, size, word });
+      }
+      return sprites;
+    }
+    function updateBackgroundForLetter(letter) {
+      const cat = gameState.currentCategory;
+      const bank = CATEGORY_BANK[cat] || [];
+      const words = bank.filter(w => w.toUpperCase().startsWith(letter.toUpperCase()));
+      const fallback = Array.from({length: 6}, () => letter.toUpperCase());
+      const base = (words.length ? words : fallback);
+      // Expand to many entries for a richer background
+      backgroundWords = [];
+      for (let i = 0; i < 6; i++) backgroundWords.push(...base);
+    }
+    function updateBackgroundForUnpressed(unusedLettersSet) {
+      const cat = gameState.currentCategory;
+      const bank = CATEGORY_BANK[cat] || [];
+      const list = [];
+      for (const word of bank) {
+        if (!word || typeof word !== 'string') continue;
+        const first = word[0].toUpperCase();
+        if (unusedLettersSet.has(first)) list.push(word);
+      }
+      backgroundWords = [];
+      if (list.length === 0) {
+        // fallback: repeat unused letters
+        const letters = Array.from(unusedLettersSet);
+        for (let i = 0; i < 20; i++) backgroundWords.push(...letters);
+      } else {
+        for (let i = 0; i < 4; i++) backgroundWords.push(...list);
+      }
+      resetBgLayout();
+    }
+    
+    // Game board parameters (computed on resize for responsiveness and HiDPI)
+    let BOARD_RADIUS = 150;
+    let LETTER_RADIUS = 20;
+    let CENTER_RADIUS = 44; // clickable Start button area
+    let centerX, centerY, DPR = 1;
+
+    function resizeCanvas() {
+      const rect = canvas.parentElement.getBoundingClientRect();
+      DPR = Math.min(window.devicePixelRatio || 1, 3);
+      // Set the internal pixel size for sharp rendering
+      canvas.width = Math.max(1, Math.floor(rect.width * DPR));
+      canvas.height = Math.max(1, Math.floor(rect.height * DPR));
+      // Keep CSS size in layout pixels
+      canvas.style.width = rect.width + 'px';
+      canvas.style.height = rect.height + 'px';
+      // Scale drawing operations from CSS px → device px
+      ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+      // Center the board in CSS pixels
+      centerX = rect.width / 2;
+      centerY = rect.height / 2;
+
+      // Size board relative to shortest screen side
+      const minSide = Math.min(rect.width, rect.height);
+      BOARD_RADIUS = Math.max(140, Math.floor(minSide * 0.33));
+      // Make letters larger relative to board radius
+      LETTER_RADIUS = Math.max(22, Math.floor(BOARD_RADIUS * 0.12));
+      CENTER_RADIUS = Math.max(40, Math.floor(BOARD_RADIUS * 0.24));
+
+      console.log(`Canvas resized dpr=${DPR}: ${rect.width}x${rect.height} css, center: (${centerX}, ${centerY}), boardR=${BOARD_RADIUS}`);
+      drawGame();
+    }
+
+    function drawGame() {
+      // Clear canvas
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      
+      // Background: gradient sky + faint words
+      const cssW = Math.round(canvas.width / DPR), cssH = Math.round(canvas.height / DPR);
+      const sky = ctx.createLinearGradient(0, 0, 0, cssH);
+      sky.addColorStop(0, '#0b1220');
+      sky.addColorStop(1, '#0e1a2f');
+      ctx.fillStyle = sky;
+      ctx.fillRect(0, 0, cssW, cssH);
+      
+      const defaultSkyWords = ['Ideas','Creativity','Swift','Harmony','Quest','Logic','Music','Ocean','Galaxy','Breeze','Spark','Photon','Pixel','Orbit','Echo','Nova','Pulse','Dream','Motion','Focus'];
+      ctx.save();
+      ctx.globalAlpha = 0.08;
+      const wordsToDraw = (backgroundWords && backgroundWords.length) ? backgroundWords : defaultSkyWords;
+      const key = `${wordsToDraw.length}:${wordsToDraw.slice(0,50).join('|')}`;
+      if (!bgLayout || bgKey !== key || bgDims.w !== cssW || bgDims.h !== cssH) {
+        bgLayout = computeBgLayout(wordsToDraw, cssW, cssH);
+        bgKey = key;
+        bgDims = { w: cssW, h: cssH };
+      }
+      for (const s of bgLayout) {
+        ctx.save();
+        ctx.translate(s.x, s.y);
+        ctx.rotate(s.rot);
+        ctx.fillStyle = '#cbd5e1';
+        ctx.font = `${s.size}px Segoe UI, Arial, sans-serif`;
+        ctx.fillText(s.word, 0, 0);
+        ctx.restore();
+      }
+      ctx.globalAlpha = 1;
+      ctx.restore();
+      
+      // Draw outer ring
+      ctx.strokeStyle = '#60a5fa';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, BOARD_RADIUS + 10, 0, Math.PI * 2);
+      ctx.stroke();
+      
+      // Draw inner ring
+      ctx.strokeStyle = '#334155';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, BOARD_RADIUS - Math.max(24, Math.floor(BOARD_RADIUS * 0.18)), 0, Math.PI * 2);
+      ctx.stroke();
+      
+      // Draw center circle (Start button)
+      const gradient = ctx.createRadialGradient(centerX, centerY, 4, centerX, centerY, CENTER_RADIUS);
+      gradient.addColorStop(0, gameState.gameActive ? '#1f2937' : '#0ea5e9');
+      gradient.addColorStop(1, gameState.gameActive ? '#111827' : '#0369a1');
+      ctx.fillStyle = gradient;
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, CENTER_RADIUS, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = gameState.gameActive ? '#334155' : '#38bdf8';
+      ctx.stroke();
+
+      // Center text
+      ctx.fillStyle = '#e2e8f0';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = `${Math.floor(CENTER_RADIUS * 0.6)}px Arial Black`;
+      ctx.fillText(gameState.gameActive ? 'GO!' : 'START', centerX, centerY);
+      
+      // Instructions (top-left) before START
+      if (!gameState.gameActive) {
+        ctx.save();
+        ctx.globalAlpha = 0.7;
+        ctx.fillStyle = '#cbd5e1';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'top';
+        const base = Math.floor(Math.min(cssW, cssH) * 0.022);
+        ctx.font = `${base}px Segoe UI, Arial`;
+        const lines = [
+          'How to play LexiOrbit',
+          '• Click START.',
+          '• For the shown category, click letters for which you can name a word that belongs to the category and starts with that letter.',
+          '• You have 10 seconds each turn to claim a new, unused letter.',
+          '• The game ends when you claim all 20 letters or time expires.',
+          '• Score = claimed letters / total available for the category (max 20).'
+        ];
+        const left = 24, top = 24;
+        lines.forEach((t, i) => ctx.fillText(t, left, top + i * (base * 1.3)));
+        ctx.restore();
+      }
+      
+      // Draw letters
+      gameState.letters.forEach((letter, index) => {
+        const angle = (index / gameState.letters.length) * Math.PI * 2 - Math.PI / 2;
+        const x = centerX + Math.cos(angle) * BOARD_RADIUS;
+        const y = centerY + Math.sin(angle) * BOARD_RADIUS;
+        
+        // Letter background circle
+        const isUsed = gameState.usedLetters.has(letter);
+        const isSelected = gameState.selectedLetter === letter;
+        
+        // Persist used letters in green; selected letter is brighter green
+        ctx.fillStyle = isUsed ? '#16a34a' : isSelected ? '#10b981' : '#475569';
+        ctx.beginPath();
+        ctx.arc(x, y, LETTER_RADIUS, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Letter border
+        ctx.strokeStyle = isSelected ? '#34d399' : (isUsed ? '#22c55e' : '#64748b');
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        
+        // Letter text (scaled with size and outlined for readability)
+        ctx.fillStyle = '#e2e8f0';
+        ctx.font = `bold ${Math.floor(LETTER_RADIUS * 1.2)}px Arial`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        // subtle outline
+        ctx.lineWidth = Math.max(1, Math.floor(LETTER_RADIUS * 0.12));
+        ctx.strokeStyle = 'rgba(17,24,39,0.9)';
+        ctx.strokeText(letter, x, y);
+        ctx.fillText(letter, x, y);
+      });
+      
+      // (Debug HUD removed)
+
+      // Full-screen overlay message (e.g., Game Over)
+      if (!gameState.gameActive && gameState.overlayMessage) {
+        ctx.save();
+        ctx.fillStyle = 'rgba(2,6,23,0.85)';
+        ctx.fillRect(0, 0, cssW, cssH);
+        const isGameOver = /game over|time up/i.test(gameState.overlayMessage);
+        ctx.fillStyle = isGameOver ? '#ef4444' : '#e2e8f0';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.font = `${Math.floor(Math.min(cssW, cssH) * 0.12)}px Arial Black`;
+        ctx.fillText(gameState.overlayMessage, centerX, centerY);
+        if (gameState.overlayScoreText) {
+          ctx.font = `${Math.floor(Math.min(cssW, cssH) * 0.06)}px Segoe UI, Arial`;
+          ctx.fillStyle = '#fbbf24';
+          ctx.fillText(gameState.overlayScoreText, centerX, centerY + Math.min(cssW, cssH) * 0.08);
+        }
+        ctx.font = `${Math.floor(Math.min(cssW, cssH) * 0.04)}px Segoe UI, Arial`;
+        ctx.fillStyle = '#93c5fd';
+        ctx.fillText('Click START to play again', centerX, centerY + Math.min(cssW, cssH) * 0.16);
+        ctx.restore();
+      }
+
+      // Top-Right: High Scores (faint) – always visible in background
+      ctx.save();
+      ctx.globalAlpha = 0.5;
+      ctx.fillStyle = '#cbd5e1';
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'top';
+      const baseTR = Math.floor(Math.min(cssW, cssH) * 0.02);
+      ctx.font = `${baseTR}px Segoe UI, Arial`;
+      const header = 'Top Players';
+      ctx.fillText(header, cssW - 24, 24);
+      if (window.__topScores && Array.isArray(window.__topScores.top5)) {
+        window.__topScores.top5.forEach((row, i) => {
+          const pct = Math.round((row.avg || 0) * 100);
+          const used = Math.round(row.used || 0);
+          const total = Math.round(row.total || 0);
+          const line = `${i+1}. ${row.player || 'Anonymous'} — ${pct}% (${used}/${total})`;
+          ctx.fillText(line, cssW - 24, 24 + (i + 1) * (baseTR * 1.3));
+        });
+      } else {
+        ctx.fillText('Loading...', cssW - 24, 24 + (baseTR * 1.3));
+      }
+      ctx.restore();
+    }
+
+    function getLetterAt(mouseX, mouseY) {
+      return gameState.letters.find((letter, index) => {
+        const angle = (index / gameState.letters.length) * Math.PI * 2 - Math.PI / 2;
+        const x = centerX + Math.cos(angle) * BOARD_RADIUS;
+        const y = centerY + Math.sin(angle) * BOARD_RADIUS;
+        
+        const distance = Math.sqrt((mouseX - x) ** 2 + (mouseY - y) ** 2);
+        return distance <= LETTER_RADIUS;
+      });
+    }
+
+    // Event handlers
+    canvas.addEventListener('click', (e) => {
+      const rect = canvas.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+      // If not active, treat center circle as Start button
+      const distToCenter = Math.hypot(mouseX - centerX, mouseY - centerY);
+      if (!gameState.gameActive && distToCenter <= CENTER_RADIUS) {
+        startRound();
+        return;
+      }
+
+      if (!gameState.gameActive) return; // ignore letter clicks until started
+
+      const clickedLetter = getLetterAt(mouseX, mouseY);
+      if (!clickedLetter) return;
+
+      // Only a previously unused letter counts for the turn
+      if (gameState.usedLetters.has(clickedLetter)) {
+        showLog(`"${clickedLetter}" already used`, 'info');
+        drawGame();
+        return;
+      }
+
+      // Register the press for this turn and mark letter used
+      gameState.turnHasPressed = true;
+      gameState.usedLetters.add(clickedLetter);
+      gameState.selectedLetter = null;
+      playSound('click');
+      updateBackgroundForLetter(clickedLetter);
+      drawGame();
+
+      // Win condition: all letters used
+      if (gameState.usedLetters.size === gameState.letters.length) {
+        showLog('🎉 Perfect! All letters used!', 'victory');
+        gameState.gameActive = false;
+          const usedRaw = gameState.usedLetters.size;
+          const cat = gameState.currentCategory;
+          const distinct = new Set((CATEGORY_BANK[cat]||[]).map(w => w[0]?.toUpperCase())).size;
+          const total = Math.min(20, distinct || gameState.letters.length);
+          const used = Math.min(usedRaw, total);
+        gameState.overlayMessage = 'Perfect! All letters used!';
+        gameState.overlayScoreText = `Score: ${used}/${total} (${Math.round((used/total)*100)}%)`;
+        // No unused letters in this case
+        backgroundWords = [];
+        drawGame();
+        // Submit score on perfect round
+        (async ()=>{
+          try{
+            let player = localStorage.getItem('lexiorbit_player');
+            if (!player) {
+              player = 'Player-' + Math.floor(Math.random()*1e6).toString(36).toUpperCase();
+              localStorage.setItem('lexiorbit_player', player);
+            }
+            const resp = await fetch('/api/scores', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ player, used, total })});
+            const data = await resp.json().catch(()=>null);
+            console.log('Score submission response:', data);
+            if (data && data.top5) { 
+              window.__topScores = { top5: data.top5 }; 
+              console.log('Updated top scores:', window.__topScores);
+              drawGame(); 
+            } else {
+              console.log('Fallback: calling fetchTopScores');
+              if (typeof fetchTopScores === 'function') fetchTopScores();
+            }
+          }catch(e){}
+        })();
+        return;
+      }
+
+      // Immediately start the next 10s turn
+      startNextTurn();
+    });
+
+    // Word input removed
+
+    document.getElementById('newRoundBtn').addEventListener('click', () => {
+      playSound('start');
+      newRound();
+    });
+
+    document.getElementById('shuffleCatBtn').addEventListener('click', () => {
+      playSound('click');
+      shuffleCategory();
+    });
+
+    // submitWord removed
+
+    function newRound() {
+      gameState.usedLetters.clear();
+      gameState.selectedLetter = null;
+      gameState.round++;
+      gameState.timeLeft = 10.0;
+      gameState.gameActive = false;
+      gameState.turnHasPressed = false;
+      gameState.overlayMessage = '';
+      backgroundWords = [];
+      resetBgLayout();
+      document.getElementById('roundChip').textContent = `Round ${gameState.round}`;
+      // input removed
+      shuffleCategory();
+      drawGame();
+    }
+
+    function startRound() {
+      playSound('start');
+      gameState.timeLeft = 10.0;
+      gameState.gameActive = true;
+      gameState.turnHasPressed = false;
+      gameState.overlayMessage = '';
+      backgroundWords = [];
+      resetBgLayout();
+      document.getElementById('timer').textContent = gameState.timeLeft.toFixed(1);
+      stopWarningTicker();
+      drawGame();
+    }
+
+    function startNextTurn() {
+      // Reset window for the next press
+      gameState.turnHasPressed = false;
+      gameState.timeLeft = 10.0;
+      document.getElementById('timer').textContent = gameState.timeLeft.toFixed(1);
+      stopWarningTicker();
+      drawGame();
+    }
+
+    function shuffleCategory() {
+      const idx = Math.floor(Math.random() * categories.length);
+      gameState.currentCategory = categories[idx];
+      gameState.currentCategoryIndex = idx; // 0-based
+      document.getElementById('category').textContent = `${idx + 1}. ${categories[idx]}`;
+      resetBgLayout();
+    }
+
+    function showLog(message, type = 'info') {
+      const log = document.getElementById('log');
+      log.textContent = message;
+      log.style.color = type === 'success' ? '#10b981' : 
+                        type === 'error' ? '#ef4444' : 
+                        type === 'victory' ? '#fbbf24' : '#e2e8f0';
+      
+      setTimeout(() => {
+        if (log.textContent === message) log.textContent = '';
+      }, 3000);
+    }
+
+    // Timer (simplified for now)
+    function updateTimer() {
+      if (!gameState.gameActive) return;
+      if (gameState.timeLeft > 0) {
+        gameState.timeLeft = Math.max(0, gameState.timeLeft - 0.1);
+        document.getElementById('timer').textContent = gameState.timeLeft.toFixed(1);
+      }
+      // Start/stop warning beeps based on remaining time in this turn
+      if (gameState.timeLeft <= 3.0 && gameState.gameActive) {
+        startWarningTicker();
+      } else {
+        stopWarningTicker();
+      }
+      if (gameState.timeLeft === 0) {
+        if (!gameState.turnHasPressed) {
+          // No letter pressed in this 10s turn → game over
+          playSound('buzz');
+          showLog('⏰ Time up! Game over.', 'error');
+          gameState.gameActive = false;
+          const usedRaw = gameState.usedLetters.size;
+          const cat = gameState.currentCategory;
+          const distinct = new Set((CATEGORY_BANK[cat]||[]).map(w => w[0]?.toUpperCase())).size;
+          const total = Math.min(20, distinct || gameState.letters.length);
+          const used = Math.min(usedRaw, total);
+          gameState.overlayMessage = 'Time Up! Game Over';
+          gameState.overlayScoreText = `Score: ${used}/${total} (${Math.round((used/total)*100)}%)`;
+          // Compute unused letters and update background with matching category words
+          const unusedLetters = new Set(gameState.letters.filter(l => !gameState.usedLetters.has(l)));
+          updateBackgroundForUnpressed(unusedLetters);
+          stopWarningTicker();
+          drawGame();
+          // Submit score to server
+          (async ()=>{
+            try{
+              let player = localStorage.getItem('lexiorbit_player');
+              if (!player) {
+                player = 'Player-' + Math.floor(Math.random()*1e6).toString(36).toUpperCase();
+                localStorage.setItem('lexiorbit_player', player);
+              }
+              const resp = await fetch('/api/scores', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ player, used, total })});
+              const data = await resp.json().catch(()=>null);
+              console.log('Score submission response:', data);
+              if (data && data.top5) { 
+                window.__topScores = { top5: data.top5 }; 
+                console.log('Updated top scores:', window.__topScores);
+                drawGame(); 
+              } else {
+                console.log('Fallback: calling fetchTopScores');
+                if (typeof fetchTopScores === 'function') fetchTopScores();
+              }
+            }catch(e){}
+          })();
+        } else {
+          // Safety: if a press happened exactly at boundary and we didn't roll over yet
+          stopWarningTicker();
+          startNextTurn();
+        }
+      }
+    }
+
+    // Top scores fetcher
+    async function fetchTopScores() {
+      try {
+        const res = await fetch('/api/scores', { cache: 'no-store' });
+        const data = await res.json();
+        window.__topScores = data;
+        drawGame();
+      } catch (e) { /* ignore */ }
+    }
+
+    // Initialize game
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+    shuffleCategory();
+    setInterval(updateTimer, 100);
+    // kick off scores and refresh periodically
+    fetchTopScores();
+    setInterval(fetchTopScores, 3000);
+    
+    showLog('🎮 Game ready! Click START to begin.', 'info');
+    console.log('Tapple game initialized successfully!');
+  </script>
+</body>
+</html>

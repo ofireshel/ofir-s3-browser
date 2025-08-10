@@ -1,0 +1,1716 @@
+﻿<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Physics Cat + Wind</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script src="https://unpkg.com/three@0.159.0/build/three.min.js"></script>
+  <style>
+    html,body{height:100%;margin:0}
+    body{background:#0b1220;color:#e2e8f0;font-family:Segoe UI,Arial,sans-serif;overflow:hidden}
+    h1{position:fixed;left:16px;top:12px;margin:0;font-size:18px;opacity:.9;z-index:3}
+    #cat{position:fixed;left:0;top:0;will-change:transform;z-index:4}
+    #hand{position:fixed;left:0;top:0;width:100vw;height:100vh;will-change:transform;z-index:9998;pointer-events:none}
+    
+    svg{width:180px;height:180px;display:block}
+    #hand svg{width:250px;height:375px;filter:drop-shadow(0 10px 20px rgba(0,0,0,0.5));display:block}
+    canvas{position:fixed;left:0;top:0;width:100vw;height:100vh}
+    /* Ensure Three.js canvas fully overlays the viewport and stays transparent */
+    canvas[data-engine="three.js"]{position:fixed;left:0;top:0;width:100vw;height:100vh;background:transparent;pointer-events:none;z-index:10}
+    #ground{z-index:2}
+    #rain{z-index:1}
+    #veg{z-index:3}
+    #stains{z-index:3}
+    #houses{z-index:2}
+    #wind{z-index:0}
+  </style>
+</head>
+<body>
+  <h1>kuku 456</h1>
+  <canvas id="wind"></canvas>
+  <canvas id="rain"></canvas>
+  <canvas id="veg"></canvas>
+  <canvas id="stains"></canvas>
+  <canvas id="houses"></canvas>
+  <canvas id="ground"></canvas>
+  
+  <div id="cat" aria-label="cat">
+    <svg id="cat-svg" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <filter id="bruiseBlur" x="-50%" y="-50%" width="200%" height="200%">
+          <feGaussianBlur in="SourceGraphic" stdDeviation="1.8"/>
+        </filter>
+        <radialGradient id="bruiseGrad" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stop-color="#3a053e" stop-opacity="0.85"/>
+          <stop offset="45%" stop-color="#4c0b56" stop-opacity="0.55"/>
+          <stop offset="80%" stop-color="#2d0930" stop-opacity="0.2"/>
+          <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
+        </radialGradient>
+        <radialGradient id="bloodGrad" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stop-color="#6b0b0b" stop-opacity="0.85"/>
+          <stop offset="60%" stop-color="#7a0f10" stop-opacity="0.5"/>
+          <stop offset="100%" stop-color="#6b0b0b" stop-opacity="0.0"/>
+        </radialGradient>
+      </defs>
+      <g id="cat-body">
+        <circle cx="64" cy="68" r="40" fill="#f4d2b7" stroke="#1f2937" stroke-width="3"/>
+        <polygon points="38,28 58,44 28,48" fill="#f4d2b7" stroke="#1f2937" stroke-width="3"/>
+        <polygon points="90,28 70,44 100,48" fill="#f4d2b7" stroke="#1f2937" stroke-width="3"/>
+        <circle cx="52" cy="64" r="5" fill="#0f172a"/>
+        <circle cx="76" cy="64" r="5" fill="#0f172a"/>
+        <polygon points="64,72 58,78 70,78" fill="#ef4444"/>
+        <line x1="74" y1="76" x2="110" y2="76" stroke="#1f2937" stroke-width="2"/>
+        <line x1="74" y1="81" x2="110" y2="86" stroke="#1f2937" stroke-width="2"/>
+        <line x1="74" y1="71" x2="110" y2="66" stroke="#1f2937" stroke-width="2"/>
+        <line x1="54" y1="76" x2="18" y2="76" stroke="#1f2937" stroke-width="2"/>
+        <line x1="54" y1="81" x2="18" y2="86" stroke="#1f2937" stroke-width="2"/>
+        <line x1="54" y1="71" x2="18" y2="66" stroke="#1f2937" stroke-width="2"/>
+      </g>
+      <g id="bruise-layer"></g>
+    </svg>
+  </div>
+  <div id="hand" aria-label="hand" style="display:none;"></div>
+  <script>
+  (function(){
+    var cat=document.getElementById('cat');
+    var bruiseLayer=document.getElementById('bruise-layer');
+    var gcv=document.getElementById('ground');
+    var wcv=document.getElementById('wind');
+    var rcv=document.getElementById('rain');
+    var vcv=document.getElementById('veg');
+    var scv=document.getElementById('stains');
+    var hcv=document.getElementById('houses');
+    var gctx=gcv.getContext('2d');
+    var wctx=wcv.getContext('2d');
+    var rctx=rcv.getContext('2d');
+    var vctx=vcv.getContext('2d');
+    var sctx=scv.getContext('2d');
+    var hctx=hcv.getContext('2d');
+    function resize(){
+        gcv.width=innerWidth; gcv.height=innerHeight;
+        wcv.width=innerWidth; wcv.height=innerHeight;
+        rcv.width=innerWidth; rcv.height=innerHeight;
+        vcv.width=innerWidth; vcv.height=innerHeight;
+        scv.width=innerWidth; scv.height=innerHeight;
+        hcv.width=innerWidth; hcv.height=innerHeight;
+        if(threeRenderer){ threeRenderer.setSize(innerWidth, innerHeight); }
+        if(threeCamera){ threeCamera.right=innerWidth; threeCamera.bottom=innerHeight; threeCamera.updateProjectionMatrix(); }
+        updateGroundMesh();
+    }
+    addEventListener('resize',resize); resize();
+
+    function groundY(x){ 
+        var h=gcv.height, base=h-80; 
+        // More natural terrain with gentler slopes
+        return base - (25*Math.sin(x/160) + 15*Math.sin((x+200)/80) + 8*Math.sin((x+520)/35) + 3*Math.sin(x/20)); 
+    }
+    function groundSlope(x){ return (groundY(x+1)-groundY(x-1))/2; }
+    function drawGround(){ gctx.clearRect(0,0,gcv.width,gcv.height); gctx.fillStyle='#22314a'; gctx.beginPath(); gctx.moveTo(0,gcv.height); for(var X=0;X<=gcv.width;X+=2) gctx.lineTo(X,groundY(X)); gctx.lineTo(gcv.width,gcv.height); gctx.closePath(); gctx.fill(); }
+    // Houses: simple silhouettes with windows/lights
+    var houses=[];
+    function initHouses(){
+        houses.length=0;
+        var x=20;
+        while(x < hcv.width-100){
+            var w = 80 + Math.random()*120;
+            var h = 60 + Math.random()*80;
+            var y = groundY(x + w*0.5) - 2;
+            houses.push({x:x, y:y, w:w, h:h, roof: Math.random()>0.5});
+            x += w + 40 + Math.random()*60;
+        }
+    }
+    function drawHouses(){
+        hctx.clearRect(0,0,hcv.width,hcv.height);
+        for(var i=0;i<houses.length;i++){
+            var H = houses[i];
+            var baseY = H.y;
+            // body
+            hctx.fillStyle = '#0f1a2a';
+            hctx.fillRect(H.x, baseY - H.h, H.w, H.h);
+            // roof
+            hctx.fillStyle = '#101c2e';
+            if(H.roof){
+                hctx.beginPath();
+                hctx.moveTo(H.x-4, baseY - H.h);
+                hctx.lineTo(H.x + H.w*0.5, baseY - H.h - H.h*0.35);
+                hctx.lineTo(H.x + H.w+4, baseY - H.h);
+                hctx.closePath(); hctx.fill();
+            } else {
+                hctx.fillRect(H.x-3, baseY - H.h - 10, H.w+6, 10);
+            }
+            // windows
+            var cols = Math.max(2, Math.floor(H.w/26));
+            var rows = Math.max(2, Math.floor(H.h/28));
+            for(var r=0;r<rows;r++){
+                for(var c=0;c<cols;c++){
+                    if(Math.random()<0.55){
+                        var wx = H.x + 8 + c*(H.w-16)/cols;
+                        var wy = baseY - H.h + 10 + r*(H.h-20)/rows;
+                        var ww = 10 + Math.random()*8, wh = 12 + Math.random()*8;
+                        var glow = 0.5 + Math.random()*0.4;
+                        hctx.fillStyle = 'rgba(250,240,170,'+glow.toFixed(2)+')';
+                        hctx.fillRect(wx, wy, ww, wh);
+                    }
+                }
+            }
+        }
+    }
+
+    // Strong wind + tornado field
+    var windParticles=[]; var WIND_COUNT=100;
+    var tornado = { x: -200, y: innerHeight*0.6, vx: 80, strength: 20000, inflow: 11000, core: 160, lift: 4000, updraft: 1600, bodyPull: 3000, spin: 2.0, angle: 0 };
+    function windAt(x,y,t){
+        // STRONGER wind field for more dramatic effects
+        var wx = 400*Math.sin(t*0.0009 + y*0.013) + 280*Math.sin(t*0.0016 + x*0.007); // 2x stronger base wind
+        var wy = 40*Math.sin(t*0.0010 + x*0.010) + 20*Math.sin(t*0.0006 + y*0.009); // reduce vertical wind a lot
+        
+        // tornado swirl + inflow - MUCH stronger
+        var dx = x - tornado.x; var dy = y - tornado.y; var r = Math.hypot(dx,dy) + 1e-3;
+        var core = tornado.core;
+        var falloff = 1 / (1 + (r/core)*(r/core));
+        var swirl = tornado.strength * 2.5 * falloff / Math.max(20, r); // 2.5x stronger swirl, smaller minimum distance
+        var inward = tornado.inflow * 3.0 * falloff / Math.max(20, r); // 3x stronger inflow
+        
+        // rotate swirl with slight tilt
+        var tx = -dy / r, ty = dx / r;
+        wx += tx * swirl;
+        wy += ty * swirl;
+        wx += (-dx / r) * inward;
+        wy += (-dy / r) * inward;
+        
+        // Less altitude reduction - winds strong at all heights
+        var altitude = Math.max(0, (innerHeight - y) / innerHeight);
+        wx *= 0.8 + 0.2*altitude; // Less reduction
+        wy *= 0.8 + 0.2*altitude;
+        return {wx:wx, wy:wy};
+    }
+    function initWind(){ windParticles.length=0; for(var i=0;i<WIND_COUNT;i++){ windParticles.push({x:Math.random()*wcv.width, y:Math.random()*wcv.height, age:Math.random()*2}); } }
+    function drawWind(t){
+        wctx.fillStyle='rgba(13,19,36,0.18)'; wctx.fillRect(0,0,wcv.width,wcv.height);
+        // field strokes
+        wctx.strokeStyle='rgba(200,220,255,0.5)'; wctx.lineWidth=1.8;
+        windParticles.forEach(function(p){ var v=windAt(p.x,p.y,t); var nx=p.x+v.wx*0.08, ny=p.y+v.wy*0.08; wctx.beginPath(); wctx.moveTo(p.x,p.y); wctx.lineTo(nx,ny); wctx.stroke(); p.x=nx; p.y=ny; p.age+=0.016; if(p.x<0||p.x>wcv.width||p.y<0||p.y>wcv.height||p.age>2){ p.x=Math.random()*wcv.width; p.y=Math.random()*wcv.height; p.age=0; } });
+        // tornado visualization: multi-ring spiral bands + dust base
+        var cx = tornado.x, cy = tornado.y; var core = tornado.core;
+        wctx.strokeStyle = 'rgba(200,230,255,0.3)'; wctx.lineWidth = 1.4;
+        for(var ring=0; ring<3; ring++){
+            var base = core*(0.4 + ring*0.25), tip = core*(1.6 + ring*0.4);
+            for(var a=0; a<Math.PI*2; a+=Math.PI/12){
+                var p0x = cx + Math.cos(a + tornado.angle*1.2)*base, p0y = cy + Math.sin(a + tornado.angle*1.2)*base;
+                var p1x = cx + Math.cos(a + tornado.angle + 0.8)*tip,  p1y = cy + Math.sin(a + tornado.angle + 0.8)*tip;
+                wctx.beginPath(); wctx.moveTo(p0x, p0y); wctx.lineTo(p1x, p1y); wctx.stroke();
+            }
+        }
+        wctx.fillStyle = 'rgba(180,170,150,0.25)'; wctx.beginPath(); wctx.arc(cx, cy+core*0.9, core*1.0, 0, Math.PI*2); wctx.fill();
+    }
+    initWind();
+
+    // Vegetation: bushes and small trees rendered as collections of branches/leaves
+    var grassTufts = [];
+    var bushes = [];
+    var trees = [];
+    var fallingLeaves = [];
+    function initVeg(){
+        grassTufts.length = 0; bushes.length = 0; trees.length = 0;
+        fallingLeaves.length = 0;
+        // grass band
+        var step = 26;
+        for(var x=0; x<vcv.width; x+=step){
+            var baseY = groundY(x) + 1;
+            var height = 18 + Math.random()*22;
+            var stiffness = 55 + Math.random()*35; // higher = less bend
+            var damping = 6 + Math.random()*6;
+            var angle = 0; var angVel = 0;
+            grassTufts.push({x:x, y:baseY, h:height, k:stiffness, c:damping, a:angle, av:angVel});
+        }
+        // bushes every ~160-240px
+        for(var bx=60; bx<vcv.width; bx+=140+Math.random()*120){
+            var by = groundY(bx) - 6;
+            var radius = 32 + Math.random()*26; // fuller
+            bushes.push({x:bx, y:by, r:radius, a:0, av:0, k:40+Math.random()*20, c:5+Math.random()*3});
+        }
+        // trees every ~300-500px, larger
+        for(var tx=120; tx<vcv.width; tx+=260+Math.random()*260){
+            var ty = groundY(tx);
+            var height = 160 + Math.random()*180; // much taller
+            var pal = randomTreePalette();
+            trees.push({x:tx, y:ty, h:height, a:0, av:0, k:18+Math.random()*16, c:8+Math.random()*6, c1:pal.c1, c2:pal.c2, c3:pal.c3, leaves:pal.leaves});
+        }
+    }
+    function randomTreePalette(){
+        function pick(arr){ return arr[(Math.random()*arr.length)|0]; }
+        var palettes = [
+            { c1:'#1f7746', c2:'#2e8b57', c3:'#3aa35c', leaves:['#2e8b57','#3aa35c','#1f7746','#89a83c'] },
+            { c1:'#2a7c48', c2:'#3b9158', c3:'#47a868', leaves:['#3b9158','#47a868','#89a83c','#b2c26a'] },
+            { c1:'#356b3f', c2:'#2a5c36', c3:'#3e7a49', leaves:['#2a5c36','#356b3f','#6f8f3a','#9fae54'] },
+            { c1:'#3b6f2a', c2:'#5f8e2f', c3:'#7aa83c', leaves:['#5f8e2f','#7aa83c','#b59b3a','#d08e3a'] },
+            { c1:'#7a3a2a', c2:'#b24a2a', c3:'#d07a2a', leaves:['#d07a2a','#b24a2a','#d0a22a','#8a5a2a'] } // autumn
+        ];
+        var p = pick(palettes);
+        return { c1:p.c1, c2:p.c2, c3:p.c3, leaves:p.leaves };
+    }
+    function stepVeg(t, dt){
+        vctx.clearRect(0,0,vcv.width, vcv.height);
+        // grass
+        vctx.lineWidth = 2.0;
+        vctx.strokeStyle = '#6fce6f';
+        for(var i=0;i<grassTufts.length;i++){
+            var gtuft = grassTufts[i];
+            // wind torque, proportional to local wind
+            var wv = windAt(gtuft.x, gtuft.y - gtuft.h*0.5, t);
+            var windTorque = 0.0025 * wv.wx - 0.001 * wv.wy;
+            // spring back to zero angle (upright)
+            var spring = - (gtuft.k * 0.0012) * gtuft.a;
+            // damping
+            var damp = - (gtuft.c * 0.08) * gtuft.av;
+            var angularAcc = windTorque + spring + damp;
+            gtuft.av += angularAcc * dt;
+            gtuft.a += gtuft.av * dt;
+            // draw as 3-segment bezier approximating bend
+            var bx = gtuft.x, by = gtuft.y;
+            var tipX = bx + Math.sin(gtuft.a) * gtuft.h;
+            var tipY = by - Math.cos(gtuft.a) * gtuft.h;
+            var ctrl1X = bx + Math.sin(gtuft.a*0.4) * (gtuft.h*0.35);
+            var ctrl1Y = by - Math.cos(gtuft.a*0.4) * (gtuft.h*0.35);
+            var ctrl2X = bx + Math.sin(gtuft.a*0.8) * (gtuft.h*0.7);
+            var ctrl2Y = by - Math.cos(gtuft.a*0.8) * (gtuft.h*0.7);
+            vctx.beginPath();
+            vctx.moveTo(bx, by);
+            vctx.bezierCurveTo(ctrl1X, ctrl1Y, ctrl2X, ctrl2Y, tipX, tipY);
+            vctx.stroke();
+        }
+        // bushes (sway body and layered foliage)
+        for(var i=0;i<bushes.length;i++){
+            var b = bushes[i];
+            var wv = windAt(b.x, b.y - b.r*0.5, t);
+            var torque = 0.004 * wv.wx; // stronger wind torque for bushes
+            var spring = -(b.k*0.001) * b.a;
+            var damp = -(b.c*0.08) * b.av;
+            b.av += (torque + spring + damp) * dt; b.a += b.av * dt;
+            var cx = b.x + Math.sin(b.a) * 4;
+            var cy = b.y;
+            var r = b.r;
+            vctx.fillStyle = '#2c6e3f'; vctx.beginPath(); vctx.arc(cx, cy-r*0.2, r*0.95, 0, Math.PI*2); vctx.fill();
+            vctx.fillStyle = '#318a4b'; vctx.beginPath(); vctx.arc(cx - r*0.6, cy, r*0.75, 0, Math.PI*2); vctx.fill();
+            vctx.beginPath(); vctx.arc(cx + r*0.6, cy, r*0.75, 0, Math.PI*2); vctx.fill();
+            vctx.fillStyle = '#3aa35b'; vctx.beginPath(); vctx.arc(cx, cy+r*0.2, r*0.65, 0, Math.PI*2); vctx.fill();
+        }
+        // trees (trunk + large full canopy sway)
+        for(var i=0;i<trees.length;i++){
+            var tr = trees[i];
+            var wv = windAt(tr.x, tr.y - tr.h*0.6, t);
+            // tornado extra suction near canopy
+            var dxT = tr.x - tornado.x, dyT = (tr.y - tr.h) - tornado.y; var rT = Math.hypot(dxT, dyT) + 1e-3; var fallT = 1 / (1 + (rT / (tornado.core*1.5))*(rT / (tornado.core*1.5)));
+            var torque = 0.001 * (wv.wx + (-dxT / rT) * tornado.bodyPull * 0.028 * fallT); // stronger suction torque
+            var spring = -(tr.k*0.001) * tr.a;
+            var damp = -(tr.c*0.08) * tr.av;
+            tr.av += (torque + spring + damp) * dt; tr.a += tr.av * dt;
+            var sway = Math.sin(tr.a) * Math.min(24, tr.h*0.1);
+            // trunk
+            vctx.strokeStyle = '#5c3b22'; vctx.lineWidth = 10;
+            vctx.beginPath(); vctx.moveTo(tr.x, tr.y); vctx.lineTo(tr.x + sway*0.08, tr.y - tr.h*0.55); vctx.stroke();
+            vctx.lineWidth = 8; vctx.beginPath(); vctx.moveTo(tr.x + sway*0.08, tr.y - tr.h*0.55); vctx.lineTo(tr.x + sway*0.18, tr.y - tr.h); vctx.stroke();
+            // canopy: multiple overlapping blobs (use tree-specific palette)
+            var cx = tr.x + sway*0.2; var cy = tr.y - tr.h;
+            var R = Math.max(38, tr.h*0.22);
+            vctx.fillStyle = tr.c1; vctx.beginPath(); vctx.arc(cx, cy, R, 0, Math.PI*2); vctx.fill();
+            vctx.fillStyle = tr.c2; vctx.beginPath(); vctx.arc(cx-0.6*R, cy+0.2*R, 0.9*R, 0, Math.PI*2); vctx.fill();
+            vctx.fillStyle = tr.c3; vctx.beginPath(); vctx.arc(cx+0.6*R, cy+0.2*R, 0.9*R, 0, Math.PI*2); vctx.fill();
+            vctx.fillStyle = tr.c2; vctx.beginPath(); vctx.arc(cx, cy+0.35*R, 0.8*R, 0, Math.PI*2); vctx.fill();
+
+            // leaf detachment based on local wind magnitude and tornado proximity
+            var localWindMag = Math.hypot(wv.wx, wv.wy);
+            var detachRate = Math.max(0, (localWindMag-100)/140) + fallT*2.6; // denser shedding
+            var leavesToSpawn = Math.floor(detachRate * dt * 22);
+            for(var k=0; k<leavesToSpawn; k++){
+                spawnLeaf(cx + (Math.random()*2-1)*R*0.95, cy + (Math.random()*2-1)*R*0.5, tr.leaves);
+            }
+        }
+
+        // update and draw falling leaves
+        stepLeaves(t, dt);
+    }
+
+    function spawnLeaf(x, y, palette){
+        var colors = palette || ['#3a8e4a','#2f7a3e','#89a83c','#b59b3a','#7c5f2a'];
+        var c = colors[(Math.random()*colors.length)|0];
+        var sz = 4 + Math.random()*3;
+        var leaf = {x:x, y:y, vx:(Math.random()-0.5)*30, vy:(Math.random()-0.5)*10, a:Math.random()*Math.PI*2, av:(Math.random()-0.5)*2, s:sz, col:c, settle:0};
+        fallingLeaves.push(leaf);
+        if(fallingLeaves.length>1200) fallingLeaves.splice(0, fallingLeaves.length-1200);
+    }
+
+    function stepLeaves(t, dt){
+        for(var i=0;i<fallingLeaves.length;i++){
+            var L = fallingLeaves[i];
+            if(L.settle>0){ L.settle += dt; continue; }
+            var v = windAt(L.x, L.y, t);
+            // aerodynamic drag towards wind + gravity
+            var ax = (v.wx - L.vx) * 0.9;
+            var ay = (v.wy - L.vy) * 0.9 + 1200;
+            // tornado updraft near core
+            var r = Math.hypot(L.x - tornado.x, L.y - tornado.y);
+            var fallT = 1 / (1 + (r/(tornado.core*1.6))*(r/(tornado.core*1.6)));
+            ay += tornado.updraft * fallT;
+            L.vx += ax*dt; L.vy += ay*dt;
+            L.x += L.vx*dt; L.y += L.vy*dt;
+            L.a += L.av*dt;
+            // ground collision
+            var gy = groundY(L.x);
+            if(L.y > gy-1){ L.y = gy-1; L.vx*=0.4; L.vy = 0; L.av *= 0.5; L.settle = 0.0001; }
+        }
+        // draw
+        for(var i=0;i<fallingLeaves.length;i++){
+            var L = fallingLeaves[i];
+            var alpha = L.settle>0 ? Math.max(0.2, 1 - Math.min(1, L.settle/10)) : 1;
+            vctx.save(); vctx.translate(L.x, L.y); vctx.rotate(L.a); vctx.fillStyle = L.col; vctx.globalAlpha = alpha;
+            // simple leaf shape: rotated ellipse with a notch
+            vctx.beginPath();
+            vctx.ellipse(0,0, L.s, L.s*0.6, 0, 0, Math.PI*2);
+            vctx.fill();
+            vctx.restore();
+        }
+        // prune old settled leaves
+        if(fallingLeaves.length>0 && fallingLeaves.length>900){
+            fallingLeaves = fallingLeaves.slice(-900);
+        }
+    }
+    initVeg();
+    initHouses();
+
+    // Rain system physically reacting to wind
+    var rainDrops=[]; var RAIN_COUNT=450; // dense rain
+    function spawnDrop(){
+        return {
+            x: Math.random()*rcv.width,
+            y: -Math.random()*rcv.height,
+            vx: 0,
+            vy: 0,
+            len: 10 + Math.random()*12,
+            life: 0
+        };
+    }
+    function initRain(){ rainDrops.length=0; for(var i=0;i<RAIN_COUNT;i++){ rainDrops.push(spawnDrop()); } }
+    function stepRain(t, dt){
+        var gRain = 1800; // px/s^2 strong gravity for raindrops
+        rctx.clearRect(0,0,rcv.width, rcv.height);
+        rctx.lineWidth = 1.2;
+        rctx.strokeStyle = 'rgba(180,200,255,0.55)';
+        rctx.beginPath();
+        for(var i=0;i<rainDrops.length;i++){
+            var d = rainDrops[i];
+            var v = windAt(d.x, d.y, t);
+            // Relative drag towards wind vector
+            var ax = (v.wx - d.vx) * 1.8; // stronger coupling
+            var ay = gRain + (v.wy - d.vy) * 1.8 + tornado.updraft * (1 / (1 + (Math.hypot(d.x-tornado.x, d.y-tornado.y)/(tornado.core*1.6))**2));
+            d.vx += ax*dt; d.vy += ay*dt;
+            var px = d.x, py = d.y;
+            d.x += d.vx*dt; d.y += d.vy*dt;
+            // Draw streak aligned to velocity
+            var sp = Math.hypot(d.vx, d.vy) + 1e-6;
+            var sx = (d.vx/sp) * d.len;
+            var sy = (d.vy/sp) * d.len;
+            rctx.moveTo(px, py);
+            rctx.lineTo(px - sx, py - sy);
+            // Collision with ground
+            if(d.y > groundY(d.x)){
+                // small splash: short bright segment
+                var gy = groundY(d.x);
+                rctx.moveTo(d.x, gy-2);
+                rctx.lineTo(d.x + 6, gy-4);
+                rctx.moveTo(d.x, gy-2);
+                rctx.lineTo(d.x - 6, gy-4);
+                // impart a brief impulse to nearest grass tuft
+                var idx = Math.max(0, Math.min(grassTufts.length-1, Math.round(d.x/28)));
+                var tuft = grassTufts[idx];
+                if(tuft){ tuft.av += 0.5 * (Math.random()*2-1); }
+                // also bend nearest bush and tree slightly
+                var nearestB = null, bd=1e9; for(var bi=0; bi<bushes.length; bi++){ var B=bushes[bi]; var dist=Math.abs(B.x-d.x); if(dist<bd){bd=dist; nearestB=B;} }
+                if(nearestB){ nearestB.av += 0.4 * (Math.random()*2-1); }
+                var nearestT = null, td=1e9; for(var ti=0; ti<trees.length; ti++){ var T=trees[ti]; var dist2=(T.x-d.x)*(T.x-d.x)+0; if(dist2<td){td=dist2; nearestT=T;} }
+                if(nearestT){ nearestT.av += 0.25 * (Math.random()*2-1); }
+                rainDrops[i] = spawnDrop();
+                rainDrops[i].x = Math.random()*rcv.width;
+            }
+            // wrap if off screen sides
+            if(d.x < -40 || d.x > rcv.width+40 || d.y > rcv.height+60){ rainDrops[i] = spawnDrop(); }
+        }
+        rctx.stroke();
+    }
+    initRain();
+
+    // WebGL (Three.js) scene for more realistic rendering
+    // Three.js scene for 3D hand only
+    var threeRenderer=null, threeScene=null, threeCamera=null, hand3D=null;
+    var handRig = null; // joints references
+    var handAvailable = false;
+    function setupWebGL(){
+        threeScene = new THREE.Scene();
+        threeCamera = new THREE.OrthographicCamera(0, innerWidth, innerHeight, 0, -1000, 1000);
+        threeCamera.position.z = 10;
+        threeRenderer = new THREE.WebGLRenderer({ 
+            antialias: true, 
+            alpha: true, 
+            premultipliedAlpha: false,
+            preserveDrawingBuffer: false
+        });
+        threeRenderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+        threeRenderer.setSize(innerWidth, innerHeight);
+        threeRenderer.setClearColor(0x000000, 0); // Completely transparent background
+        threeRenderer.autoClear = true;
+        if(threeRenderer.outputEncoding!==undefined){ threeRenderer.outputEncoding = THREE.sRGBEncoding; }
+        if(THREE.ACESFilmicToneMapping!==undefined){ threeRenderer.toneMapping = THREE.ACESFilmicToneMapping; }
+        var mount = document.getElementById('hand');
+        mount.style.display = 'block';
+        mount.style.background = 'transparent';
+        mount.style.backgroundColor = 'transparent';
+        mount.innerHTML = '';
+        mount.appendChild(threeRenderer.domElement);
+        threeRenderer.domElement.setAttribute('data-engine', 'three.js');
+        threeRenderer.domElement.style.pointerEvents = 'none';
+        threeRenderer.domElement.style.position = 'fixed';
+        threeRenderer.domElement.style.left = '0px';
+        threeRenderer.domElement.style.top = '0px';
+        threeRenderer.domElement.style.width = '100vw';
+        threeRenderer.domElement.style.height = '100vh';
+        threeRenderer.domElement.style.zIndex = '10';
+        threeRenderer.domElement.style.background = 'none';
+        threeRenderer.domElement.style.backgroundColor = 'transparent';
+        // lighting: softer fill + warm key for skin
+        var hemi = new THREE.HemisphereLight(0xf0f5ff, 0x1a2433, 0.7); threeScene.add(hemi);
+        var key = new THREE.DirectionalLight(0xfff1df, 1.05); key.position.set(-0.4,-0.7,1.0).normalize(); threeScene.add(key);
+        var rim = new THREE.DirectionalLight(0xbfd7ff, 0.35); rim.position.set(0.8,0.4,-1.0).normalize(); threeScene.add(rim);
+        // build rig
+        buildHand3D();
+        // Expose for module loader
+        window.threeScene = threeScene;
+        window.threeCamera = threeCamera;
+        window.threeRenderer = threeRenderer;
+        window.hand3D = hand3D;
+        // No external loader UI
+    }
+
+    function updateGroundMesh(){
+        if(!threeRenderer) return;
+        threeRenderer.setSize(innerWidth, innerHeight);
+    }
+
+    function updateWebGL(){
+        if(!threeRenderer||!hand3D){ return; }
+        
+        // FORCE hand to be exactly over the cat - no complex calculations
+        // Convert CSS pixels to Three ortho space (origin top-left): use camera with y-down
+        threeCamera.top = 0; threeCamera.bottom = innerHeight; threeCamera.left = 0; threeCamera.right = innerWidth; threeCamera.updateProjectionMatrix();
+        
+        // Position hand EXACTLY at CAT position for debugging (centered a bit above)
+        hand3D.position.set(x, Math.max(0, y - 120), 5);
+        
+        // Point hand straight down (no rotation)
+        hand3D.rotation.z = 0;
+        
+        // Debug info - ALWAYS log position
+        console.log('Hand pos:', handX.toFixed(1), handY.toFixed(1), 'Cat pos:', x.toFixed(1), y.toFixed(1), 'State:', handState);
+        
+        // Force visible for debugging so we can see scale/position always
+        hand3D.visible = handAvailable;
+        if(threeRenderer.domElement){ threeRenderer.domElement.style.display = handAvailable ? 'block' : 'none'; }
+        threeRenderer.render(threeScene, threeCamera);
+    }
+
+    function roundedBox(w,h,d, r){
+        // smoother geometry with subdivisions
+        var shape = new THREE.Shape(); var hw=w/2, hh=h/2, rr=Math.min(r,hw,hh);
+        shape.moveTo(-hw+rr, -hh); shape.lineTo(hw-rr, -hh); shape.quadraticCurveTo(hw,-hh, hw,-hh+rr);
+        shape.lineTo(hw, hh-rr); shape.quadraticCurveTo(hw,hh, hw-rr,hh);
+        shape.lineTo(-hw+rr, hh); shape.quadraticCurveTo(-hw,hh, -hw,hh-rr);
+        shape.lineTo(-hw, -hh+rr); shape.quadraticCurveTo(-hw,-hh, -hw+rr,-hh);
+        var geom = new THREE.ExtrudeGeometry(shape, { depth:d, steps:2, bevelEnabled:true, bevelThickness:2, bevelSize:2, bevelSegments:2 });
+        geom.computeVertexNormals();
+        var mat = new THREE.MeshStandardMaterial({ color: 0xf0cdbb, metalness: 0.05, roughness: 0.55 });
+        var mesh = new THREE.Mesh(geom, mat); mesh.rotation.x = Math.PI/2; return mesh;
+    }
+    function makeTaperedSegment(radiusBase, radiusTip, length, radialSegs){
+        var cylLen = Math.max(0.1, length - radiusBase - radiusTip);
+        var geom = new THREE.CylinderGeometry(radiusTip, radiusBase, cylLen, radialSegs||18, 1, false);
+        var mesh = new THREE.Mesh(geom);
+        // add hemispherical caps
+        var capBase = new THREE.Mesh(new THREE.SphereGeometry(radiusBase, radialSegs||18, 12));
+        capBase.scale.set(1,1,0.5);
+        capBase.position.y = cylLen/2;
+        var capTip = new THREE.Mesh(new THREE.SphereGeometry(radiusTip, radialSegs||18, 12));
+        capTip.scale.set(1,1,0.5);
+        capTip.position.y = -cylLen/2;
+        mesh.add(capBase); mesh.add(capTip);
+        return mesh;
+    }
+    function buildFinger(lengths, thickness){
+        // Tapered segments with slight curvature and nails
+        var root=new THREE.Object3D(), mcp=new THREE.Object3D(), pip=new THREE.Object3D(), dip=new THREE.Object3D();
+        root.add(mcp);
+        var rBase = thickness*0.50, rMid = thickness*0.42, rTip = thickness*0.34;
+        var skin = new THREE.MeshStandardMaterial({ color: 0xecd0c2, metalness: 0.02, roughness: 0.46 });
+        var seg1=makeTaperedSegment(rBase, Math.max(3, rBase*0.8), lengths[0], 22); seg1.traverse(o=>{ if(o.isMesh) o.material = skin; }); seg1.rotation.z = Math.PI/2; seg1.position.y = -lengths[0]/2; mcp.add(seg1);
+        pip.position.y=-lengths[0]; mcp.add(pip);
+        var seg2=makeTaperedSegment(Math.max(3, rMid*0.95), Math.max(2.5, rMid*0.75), lengths[1], 22); seg2.traverse(o=>{ if(o.isMesh) o.material = skin; }); seg2.rotation.z = Math.PI/2; seg2.position.y = -lengths[1]/2; pip.add(seg2);
+        dip.position.y=-lengths[1]; pip.add(dip);
+        var seg3=makeTaperedSegment(Math.max(2.8, rTip*0.9), Math.max(2.2, rTip*0.7), lengths[2], 22); seg3.traverse(o=>{ if(o.isMesh) o.material = skin; }); seg3.rotation.z = Math.PI/2; seg3.position.y = -lengths[2]/2; dip.add(seg3);
+        // subtle knuckle pads
+        var bulgeMat = new THREE.MeshStandardMaterial({ color: 0xf2d8cd, metalness: 0.02, roughness: 0.52 });
+        var b1 = new THREE.Mesh(new THREE.SphereGeometry(thickness*0.32, 14, 14), bulgeMat); b1.position.set(0, -4, thickness*0.36); seg1.add(b1);
+        var b2 = new THREE.Mesh(new THREE.SphereGeometry(thickness*0.28, 14, 14), bulgeMat); b2.position.set(0, -3, thickness*0.32); seg2.add(b2);
+        // nail plate
+        var nailLen = Math.max(3, lengths[2]*0.28);
+        var nailGeom = new THREE.BoxGeometry(thickness*0.35, nailLen, thickness*0.12);
+        var nailMat = new THREE.MeshStandardMaterial({color:0xf7e9e1, metalness:0.02, roughness:0.35});
+        var nail = new THREE.Mesh(nailGeom, nailMat); nail.position.y = -lengths[2] + nailLen*0.4; nail.position.z = thickness*0.28; dip.add(nail);
+        return {root,mcp,pip,dip};
+    }
+    async function loadGLBHand(glbUrl){
+        try{
+            if(!THREE.GLTFLoader){
+                const s = document.createElement('script');
+                s.src = 'https://unpkg.com/three@0.159.0/examples/js/loaders/GLTFLoader.js';
+                await new Promise((res,rej)=>{ s.onload=res; s.onerror=rej; document.head.appendChild(s); });
+            }
+            const loader = new THREE.GLTFLoader();
+            await new Promise((resolve, reject)=>{
+                loader.load(glbUrl, (gltf)=>{
+                    if(hand3D){ while(hand3D.children.length){ hand3D.remove(hand3D.children[0]); } }
+                    const model = gltf.scene;
+                    model.traverse((n)=>{ if(n.isMesh){ n.castShadow=false; n.receiveShadow=false; if(n.material&&n.material.map){ n.material.map.encoding=THREE.sRGBEncoding; } } });
+                    model.scale.set(2.2,2.2,2.2);
+                    hand3D.add(model);
+                    // Build simple bone map by names if present
+                    handRig = { index:{}, middle:{}, ring:{}, pinky:{}, thumb:{} };
+                    const names = ['index','middle','ring','pinky'];
+                    model.traverse((o)=>{
+                        if(!o.name) return; const n=o.name.toLowerCase();
+                        names.forEach((nm)=>{ if(n.includes(nm)&&n.includes('mcp')) handRig[nm].mcp=o; });
+                        names.forEach((nm)=>{ if(n.includes(nm)&&n.includes('pip')) handRig[nm].pip=o; });
+                        names.forEach((nm)=>{ if(n.includes(nm)&&n.includes('dip')) handRig[nm].dip=o; });
+                        if(n.includes('thumb')&&n.includes('mcp')) handRig.thumb.mcp=o;
+                        if(n.includes('thumb')&&(n.includes('ip')||n.includes('tip'))) handRig.thumb.ip=o;
+                        if(n.includes('thumb')&&o.isBone) handRig.thumb.root=o.parent||o;
+                    });
+                    handAvailable = true;
+                    resolve();
+                }, undefined, reject);
+            });
+        }catch(e){ console.error('GLB load failed', e); }
+    }
+
+    async function buildHand3D(){
+        hand3D = new THREE.Object3D(); threeScene.add(hand3D);
+        // Try to load a rigged GLB hand if available
+        try{
+            if(!THREE.GLTFLoader){
+                const s = document.createElement('script');
+                s.src = 'https://unpkg.com/three@0.159.0/examples/js/loaders/GLTFLoader.js';
+                await new Promise((res,rej)=>{ s.onload=res; s.onerror=rej; document.head.appendChild(s); });
+            }
+            const loader = new THREE.GLTFLoader();
+            await new Promise((resolve, reject)=>{
+                loader.load('assets/hand.glb', (gltf)=>{
+                    const model = gltf.scene;
+                    model.traverse((n)=>{ if(n.isMesh){ n.castShadow=false; n.receiveShadow=false; if(n.material&&n.material.map){ n.material.map.encoding=THREE.sRGBEncoding; } } });
+                    model.scale.set(2.2,2.2,2.2);
+                    hand3D.add(model);
+                    // Build simple bone map by names if present
+                    handRig = {};
+                    const names = ['index','middle','ring','pinky'];
+                    names.forEach((n)=>{ handRig[n]={ mcp:null,pip:null,dip:null }; });
+                    handRig.thumb = { root:null,mcp:null,ip:null };
+                    model.traverse((o)=>{
+                        if(o.name){
+                            names.forEach((n)=>{
+                                if(o.name.toLowerCase().includes(n) && o.name.toLowerCase().includes('mcp')) handRig[n].mcp=o;
+                                if(o.name.toLowerCase().includes(n) && o.name.toLowerCase().includes('pip')) handRig[n].pip=o;
+                                if(o.name.toLowerCase().includes(n) && o.name.toLowerCase().includes('dip')) handRig[n].dip=o;
+                            });
+                            if(o.name.toLowerCase().includes('thumb') && o.name.toLowerCase().includes('mcp')) handRig.thumb.mcp=o;
+                            if(o.name.toLowerCase().includes('thumb') && (o.name.toLowerCase().includes('ip')||o.name.toLowerCase().includes('tip'))) handRig.thumb.ip=o;
+                            if(o.name.toLowerCase().includes('thumb') && o.isBone) handRig.thumb.root = o.parent || o;
+                        }
+                    });
+                    handAvailable = true;
+                    resolve();
+                }, undefined, reject);
+            });
+        }catch(e){
+            // Realistic human hand model
+            createRealisticHand();
+            handAvailable = true;
+        }
+    }
+
+    // Create realistic human hand with proper proportions
+    function createRealisticHand() {
+        // Realistic skin colors and materials
+        var skinMat = new THREE.MeshStandardMaterial({ 
+            color: 0xfdbcb4, 
+            metalness: 0.0, 
+            roughness: 0.6,
+            transparent: true,
+            opacity: 0.95
+        });
+        
+        var skinDark = new THREE.MeshStandardMaterial({ 
+            color: 0xf5a396, 
+            metalness: 0.0, 
+            roughness: 0.7 
+        });
+        
+        var nailMat = new THREE.MeshStandardMaterial({
+            color: 0xfef2ef,
+            metalness: 0.1,
+            roughness: 0.3
+        });
+        
+        // PALM - anatomically correct shape
+        var palmGroup = new THREE.Group();
+        hand3D.add(palmGroup);
+        
+        // Main palm body - flattened box with proper proportions
+        var palmGeom = new THREE.BoxGeometry(70, 90, 20);
+        // Add subtle curves to make it more hand-like
+        palmGeom.scale(1, 1, 0.8);
+        var palm = new THREE.Mesh(palmGeom, skinMat);
+        palm.position.set(0, 0, 0);
+        palmGroup.add(palm);
+        
+        // Thenar eminence (thumb muscle)
+        var thenarGeom = new THREE.SphereGeometry(18, 16, 16);
+        thenarGeom.scale(1.2, 0.8, 0.6);
+        var thenar = new THREE.Mesh(thenarGeom, skinMat);
+        thenar.position.set(-25, 15, 8);
+        palmGroup.add(thenar);
+        
+        // Hypothenar eminence (pinky side muscle)
+        var hypoGeom = new THREE.SphereGeometry(12, 16, 16);
+        hypoGeom.scale(1, 1.3, 0.7);
+        var hypo = new THREE.Mesh(hypoGeom, skinMat);
+        hypo.position.set(30, -10, 6);
+        palmGroup.add(hypo);
+        
+        // Palm creases (subtle indentations)
+        var crease1Geom = new THREE.CylinderGeometry(1, 1, 60, 8);
+        var crease1 = new THREE.Mesh(crease1Geom, skinDark);
+        crease1.rotation.z = Math.PI/2;
+        crease1.position.set(0, 10, 10);
+        palmGroup.add(crease1);
+        
+        // Create realistic fingers with proper bone structure
+        function createRealisticFinger(lengths, baseRadius, name) {
+            var fingerGroup = new THREE.Group();
+            
+            // Metacarpal (hidden in palm)
+            var mcpJoint = new THREE.Group();
+            fingerGroup.add(mcpJoint);
+            
+            // Proximal phalanx (largest segment)
+            var proximalGeom = new THREE.CapsuleGeometry(baseRadius * 0.9, lengths[0], 12, 24);
+            var proximal = new THREE.Mesh(proximalGeom, skinMat);
+            proximal.position.y = -lengths[0] / 2;
+            mcpJoint.add(proximal);
+            
+            // Proximal knuckle
+            var knuckle1Geom = new THREE.SphereGeometry(baseRadius * 1.1, 12, 12);
+            var knuckle1 = new THREE.Mesh(knuckle1Geom, skinMat);
+            knuckle1.position.y = -lengths[0];
+            mcpJoint.add(knuckle1);
+            
+            // PIP joint
+            var pipJoint = new THREE.Group();
+            pipJoint.position.y = -lengths[0];
+            mcpJoint.add(pipJoint);
+            
+            // Middle phalanx
+            var middleGeom = new THREE.CapsuleGeometry(baseRadius * 0.75, lengths[1], 10, 20);
+            var middle = new THREE.Mesh(middleGeom, skinMat);
+            middle.position.y = -lengths[1] / 2;
+            pipJoint.add(middle);
+            
+            // Middle knuckle
+            var knuckle2Geom = new THREE.SphereGeometry(baseRadius * 0.85, 10, 10);
+            var knuckle2 = new THREE.Mesh(knuckle2Geom, skinMat);
+            knuckle2.position.y = -lengths[1];
+            pipJoint.add(knuckle2);
+            
+            // DIP joint
+            var dipJoint = new THREE.Group();
+            dipJoint.position.y = -lengths[1];
+            pipJoint.add(dipJoint);
+            
+            // Distal phalanx (fingertip)
+            var distalGeom = new THREE.CapsuleGeometry(baseRadius * 0.6, lengths[2], 8, 16);
+            var distal = new THREE.Mesh(distalGeom, skinMat);
+            distal.position.y = -lengths[2] / 2;
+            dipJoint.add(distal);
+            
+            // Fingernail
+            var nailGeom = new THREE.BoxGeometry(baseRadius * 1.2, lengths[2] * 0.6, baseRadius * 0.3);
+            var nail = new THREE.Mesh(nailGeom, nailMat);
+            nail.position.set(0, -lengths[2] * 0.7, baseRadius * 0.7);
+            dipJoint.add(nail);
+            
+            // Fingertip padding
+            var tipGeom = new THREE.SphereGeometry(baseRadius * 0.8, 12, 12);
+            tipGeom.scale(1, 0.7, 0.8);
+            var tip = new THREE.Mesh(tipGeom, skinMat);
+            tip.position.y = -lengths[2];
+            dipJoint.add(tip);
+            
+            return {
+                root: fingerGroup,
+                mcp: mcpJoint,
+                pip: pipJoint,
+                dip: dipJoint
+            };
+        }
+        
+        // Create fingers with realistic proportions
+        var indexFinger = createRealisticFinger([45, 30, 20], 9, 'index');
+        var middleFinger = createRealisticFinger([50, 35, 22], 10, 'middle');
+        var ringFinger = createRealisticFinger([47, 32, 20], 9, 'ring');
+        var pinkyFinger = createRealisticFinger([35, 25, 18], 7, 'pinky');
+        
+        // Position fingers on palm with natural spread
+        indexFinger.root.position.set(-21, 40, 0);
+        indexFinger.root.rotation.z = THREE.MathUtils.degToRad(-8);
+        hand3D.add(indexFinger.root);
+        
+        middleFinger.root.position.set(-7, 42, 0);
+        middleFinger.root.rotation.z = THREE.MathUtils.degToRad(0);
+        hand3D.add(middleFinger.root);
+        
+        ringFinger.root.position.set(7, 40, 0);
+        ringFinger.root.rotation.z = THREE.MathUtils.degToRad(8);
+        hand3D.add(ringFinger.root);
+        
+        pinkyFinger.root.position.set(21, 35, 0);
+        pinkyFinger.root.rotation.z = THREE.MathUtils.degToRad(15);
+        hand3D.add(pinkyFinger.root);
+        
+        // Create realistic thumb
+        var thumbGroup = new THREE.Group();
+        hand3D.add(thumbGroup);
+        thumbGroup.position.set(-45, 20, 5);
+        thumbGroup.rotation.z = THREE.MathUtils.degToRad(-25);
+        
+        // Thumb metacarpal
+        var thumbMcpJoint = new THREE.Group();
+        thumbGroup.add(thumbMcpJoint);
+        
+        var thumbProximalGeom = new THREE.CapsuleGeometry(8, 35, 10, 16);
+        var thumbProximal = new THREE.Mesh(thumbProximalGeom, skinMat);
+        thumbProximal.position.y = -17.5;
+        thumbMcpJoint.add(thumbProximal);
+        
+        // Thumb IP joint
+        var thumbIpJoint = new THREE.Group();
+        thumbIpJoint.position.y = -35;
+        thumbMcpJoint.add(thumbIpJoint);
+        
+        var thumbDistalGeom = new THREE.CapsuleGeometry(7, 25, 8, 14);
+        var thumbDistal = new THREE.Mesh(thumbDistalGeom, skinMat);
+        thumbDistal.position.y = -12.5;
+        thumbIpJoint.add(thumbDistal);
+        
+        // Thumb nail
+        var thumbNailGeom = new THREE.BoxGeometry(10, 15, 3);
+        var thumbNail = new THREE.Mesh(thumbNailGeom, nailMat);
+        thumbNail.position.set(0, -20, 5);
+        thumbIpJoint.add(thumbNail);
+        
+        // Set up hand rig for animation
+        handRig = {
+            index: indexFinger,
+            middle: middleFinger,
+            ring: ringFinger,
+            pinky: pinkyFinger,
+            thumb: {
+                root: thumbGroup,
+                mcp: thumbMcpJoint,
+                ip: thumbIpJoint
+            }
+        };
+        
+        // Scale hand to realistic size for picking up cat
+        hand3D.scale.set(2.0, 2.0, 2.0);
+    }
+
+    setupWebGL();
+    // Force an initial pickup shortly after load once the hand is available
+    (function waitForHandAndTrigger(){
+      var tries = 0;
+      var iv = setInterval(function(){
+        tries++;
+        if(handAvailable && handState === 'waiting'){
+          startHandPickup();
+          clearInterval(iv);
+        }
+        if(tries>200){ clearInterval(iv); }
+      }, 100);
+    })();
+
+    // Physics - Very heavy cat parameters for better grounding
+    var R=90; // radius in pixels (cat approximation)
+    var mass=150.0; // kg - extremely heavy cat (10x heavier than before)
+    var pxPerMeter=180; // pixels per meter for scaling
+    var g=9.81*pxPerMeter; // gravity in px/s²
+    
+    // Cat-specific physical properties (not a sphere!)
+    var radiusM = R/pxPerMeter; // radius in meters
+    var I = 0.25 * mass * radiusM * radiusM; // moment of inertia for cat (lower than sphere - cats can twist)
+    var rollingFrictionCoeff = 0.08; // cats have more friction due to fur/paws
+    var muStatic = 0.85;  // cats have excellent grip with claws
+    var muKinetic = 0.65; // still good friction when sliding
+    
+    // Cat behavioral/physical properties
+    var catLength = R * 1.8; // cats are elongated, not spherical
+    var airResistanceMultiplier = 1.2; // REDUCED - was too much drag
+    var landingOrientationForce = 2800; // cats try to land on feet
+    var maxTerminalVelocity = 600; // INCREASED - was too low, cats need to fall faster initially
+    
+    // Initial conditions - start cat more gently so it falls down
+    var x=gcv.width*0.35, y=50+R, vx=50, vy=20, w=0; 
+    var last=performance.now(), contactTime=0, timeGrounded=0, lastHandStartMs=performance.now();
+    
+    // Air properties - MUCH REDUCED air resistance for realistic falling
+    var airDensity = 0.4; // REDUCED from 1.225 - was causing floating
+    var dragCoeff = 0.3; // REDUCED from 0.8 - was way too high
+    var crossSectionalArea = Math.PI * radiusM * radiusM * 0.8; // REDUCED effective area
+
+    // Bruises (more realistic multi-layer: dark core, red ring, yellow/green outer, swelling)
+    var bruises=[]; // {lx,ly,age,size,imp,bleed}
+    var bloodStains=[]; // ground stains: {x,y,r,alpha}
+    function addBruiseFromWorld(cx, cy, impulse){
+        var lx=(cx-x)/(R*2)*128+64, ly=(cy-y)/(R*2)*128+68;
+        var sz = 8 + Math.min(34, Math.abs(impulse)*22);
+        var bleed = Math.max(0, Math.min(1, (Math.abs(impulse)-0.8)/3));
+        bruises.push({lx:lx, ly:ly, age:0, size:sz, imp:Math.min(3, Math.abs(impulse)), bleed:bleed});
+        if(bruises.length>60) bruises.shift();
+    }
+    function addRollingBruise(){
+        var angle=Math.random()*Math.PI*2, r=30+Math.random()*15; var lx=64+r*Math.cos(angle), ly=68+r*Math.sin(angle);
+        bruises.push({lx:lx, ly:ly, age:0, size:6, imp:0.6});
+        if(bruises.length>60) bruises.shift();
+    }
+    function renderBruises(dt){
+        for(var i=0;i<bruises.length;i++){ bruises[i].age+=dt; }
+        bruises=bruises.filter(function(b){return b.age<40});
+        var out='';
+        for(var i=0;i<bruises.length;i++){
+            var b=bruises[i];
+            var t=b.age;
+            var swell = Math.min(1.25, 1 + 0.15*b.imp * Math.exp(-t/2));
+            var coreR = (b.size*0.35 + Math.min(18,t*1.2)) * swell;
+            var redR  = (b.size*0.6  + Math.min(22,t*1.0)) * swell;
+            var haloR = (b.size*0.9  + Math.min(28,t*0.8)) * swell;
+            var alpha = Math.max(0, 1 - t/35);
+            // dark hematoma core
+            out += '<circle cx="'+b.lx.toFixed(1)+'" cy="'+b.ly.toFixed(1)+'" r="'+coreR.toFixed(1)+'" fill="url(#bruiseGrad)" fill-opacity="'+(0.85*alpha).toFixed(3)+'" filter="url(#bruiseBlur)" />';
+            // red inflammatory ring
+            out += '<circle cx="'+b.lx.toFixed(1)+'" cy="'+b.ly.toFixed(1)+'" r="'+redR.toFixed(1)+'" fill="#7a0b1a" fill-opacity="'+(0.28*alpha).toFixed(3)+'" filter="url(#bruiseBlur)" />';
+            // yellow/green peripheral discoloration (later stage)
+            var late = Math.max(0, (t-8)/24);
+            out += '<circle cx="'+b.lx.toFixed(1)+'" cy="'+b.ly.toFixed(1)+'" r="'+haloR.toFixed(1)+'" fill="#7f8a28" fill-opacity="'+(0.22*late*alpha).toFixed(3)+'" filter="url(#bruiseBlur)" />';
+            // blood seep (on cat) subtle
+            if(b.bleed>0){
+                var bleedAlpha = 0.18 * b.bleed * Math.max(0, 1 - t/8);
+                out += '<circle cx="'+b.lx.toFixed(1)+'" cy="'+b.ly.toFixed(1)+'" r="'+(redR*0.5).toFixed(1)+'" fill="url(#bloodGrad)" fill-opacity="'+bleedAlpha.toFixed(3)+'" />';
+            }
+        }
+        bruiseLayer.innerHTML=out;
+    }
+
+    function maybeDripBlood(wx, wy, severity){
+        var p = Math.min(0.8, 0.2 + 0.15*severity);
+        if(Math.random() < p){
+            var r = 4 + Math.random()*10*severity;
+            var stain = {x:wx, y:groundY(wx)-1, r:r, alpha:0.22+Math.random()*0.2};
+            bloodStains.push(stain);
+            if(bloodStains.length>120) bloodStains.shift();
+        }
+    }
+
+    function liftAndDrop(){
+        // Randomize spawn across full width with varying initial velocities
+        x = Math.max(R, Math.min(gcv.width-R, Math.random()*gcv.width));
+        y = 10 + R + Math.random()*40;
+        // Small initial lateral velocity and spin
+        vx = 120*(Math.random()*2-1);
+        vy = 0;
+        w = (Math.random()*2-1)*0.8;
+        contactTime = 0;
+    }
+
+    // Set finger positions based on medical research of human hand movement
+    function setFingerFlexion(flexAmount) {
+        // flexAmount: 0 = fully extended, 1 = fully flexed
+        
+        // Thumb opposition and flexion (unique thumb movement)
+        fingers.thumb.cmc = flexAmount * 45;      // Base rotation for opposition
+        fingers.thumb.mcp = flexAmount * 50;      // Metacarpal flexion
+        fingers.thumb.ip = flexAmount * 80;       // Tip flexion
+        
+        // Index finger (most independent finger)
+        fingers.index.mcp = flexAmount * 85;      // Knuckle flexion
+        fingers.index.pip = flexAmount * 95;      // Middle joint flexion  
+        fingers.index.dip = flexAmount * 70;      // Tip joint flexion
+        
+        // Middle finger (longest, most flexion)
+        fingers.middle.mcp = flexAmount * 90;     // Highest knuckle flexion
+        fingers.middle.pip = flexAmount * 100;    // Maximum middle joint
+        fingers.middle.dip = flexAmount * 75;     // Strong tip flexion
+        
+        // Ring finger (coupled with middle finger movement)
+        var ringCoupling = 0.85; // Ring finger follows middle finger 85%
+        fingers.ring.mcp = flexAmount * 88 * ringCoupling;
+        fingers.ring.pip = flexAmount * 98 * ringCoupling;
+        fingers.ring.dip = flexAmount * 72 * ringCoupling;
+        
+        // Pinky (smallest, most independent but weakest)
+        fingers.pinky.mcp = flexAmount * 82;      // Good knuckle flexion
+        fingers.pinky.pip = flexAmount * 90;      // Good middle flexion
+        fingers.pinky.dip = flexAmount * 65;      // Weaker tip flexion
+    }
+    
+    // Anatomical grasp synergy: progressive, staggered per digit
+    function applyGraspProgress(p){
+        var gp = Math.max(0, Math.min(1, p));
+        function phase(progress, start, length){
+            var t = (progress - start)/length; return Math.max(0, Math.min(1, t));
+        }
+        var activ = {
+            ring:   phase(gp, 0.00, 0.60),
+            pinky:  phase(gp, 0.05, 0.60),
+            middle: phase(gp, 0.10, 0.60),
+            index:  phase(gp, 0.18, 0.60),
+            thumb:  phase(gp, 0.25, 0.60)
+        };
+        function setFinger(name, act, mcpMax){
+            var mcp = mcpMax * act;
+            var pip = Math.min(100, mcp * 1.2);
+            var dip = Math.min(80,  pip * 0.6);
+            fingers[name].mcp = mcp;
+            fingers[name].pip = pip;
+            fingers[name].dip = dip;
+        }
+        setFinger('ring',   activ.ring,   85);
+        setFinger('pinky',  activ.pinky,  80);
+        setFinger('middle', activ.middle, 90);
+        setFinger('index',  activ.index,  85);
+        // Thumb opposition + flex
+        fingers.thumb.cmc = 35 * activ.thumb;
+        fingers.thumb.mcp = 45 * activ.thumb;
+        fingers.thumb.ip  = 65 * activ.thumb;
+    }
+    
+    function updateHandAnimation() {
+        if(!hand) return;
+        try {
+            // Helper to apply hierarchical rotations at MCP/PIP/DIP
+            function setFingerAngles(prefix, mcp, pip, dip, centers) {
+                var m = hand.querySelector('#' + prefix + '_mcp');
+                var p = hand.querySelector('#' + prefix + '_pip');
+                var d = hand.querySelector('#' + prefix + '_dip');
+                if(m) m.setAttribute('transform', 'rotate(' + (mcp*0.9) + ' ' + centers.mcp[0] + ' ' + centers.mcp[1] + ')');
+                if(p) p.setAttribute('transform', 'rotate(' + (mcp + pip*0.95) + ' ' + centers.pip[0] + ' ' + centers.pip[1] + ')');
+                if(d) d.setAttribute('transform', 'rotate(' + (mcp + pip + dip*0.9) + ' ' + centers.dip[0] + ' ' + centers.dip[1] + ')');
+            }
+
+            // Thumb: opposition (CMC) + MCP/IP flexion
+            var thumbCmc = hand.querySelector('#thumb_cmc');
+            var thumbMcp = hand.querySelector('#thumb_mcp');
+            var thumbIp  = hand.querySelector('#thumb_ip');
+            if(thumbCmc) thumbCmc.setAttribute('transform', 'rotate(' + (-10 + fingers.thumb.cmc) + ' 60 180)');
+            if(thumbMcp) thumbMcp.setAttribute('transform', 'rotate(' + (fingers.thumb.mcp) + ' 60 180)');
+            if(thumbIp)  thumbIp.setAttribute('transform',  'rotate(' + (fingers.thumb.ip)  + ' 45 150)');
+
+            // Drive the 3D rig (if exists)
+            if(handRig){
+                function clampRad(v){ return THREE.MathUtils.degToRad(Math.max(0, Math.min(110, v))); }
+                if(handRig.index.mcp)  handRig.index.mcp.rotation.x  = -clampRad(fingers.index.mcp);
+                if(handRig.index.pip)  handRig.index.pip.rotation.x  = -clampRad(fingers.index.pip);
+                if(handRig.index.dip)  handRig.index.dip.rotation.x  = -clampRad(fingers.index.dip);
+                if(handRig.middle.mcp) handRig.middle.mcp.rotation.x = -clampRad(fingers.middle.mcp);
+                if(handRig.middle.pip) handRig.middle.pip.rotation.x = -clampRad(fingers.middle.pip);
+                if(handRig.middle.dip) handRig.middle.dip.rotation.x = -clampRad(fingers.middle.dip);
+                if(handRig.ring.mcp)   handRig.ring.mcp.rotation.x   = -clampRad(fingers.ring.mcp);
+                if(handRig.ring.pip)   handRig.ring.pip.rotation.x   = -clampRad(fingers.ring.pip);
+                if(handRig.ring.dip)   handRig.ring.dip.rotation.x   = -clampRad(fingers.ring.dip);
+                if(handRig.pinky.mcp)  handRig.pinky.mcp.rotation.x  = -clampRad(fingers.pinky.mcp);
+                if(handRig.pinky.pip)  handRig.pinky.pip.rotation.x  = -clampRad(fingers.pinky.pip);
+                if(handRig.pinky.dip)  handRig.pinky.dip.rotation.x  = -clampRad(fingers.pinky.dip);
+                if(handRig.thumb.mcp)  handRig.thumb.mcp.rotation.x  = -clampRad(fingers.thumb.mcp);
+                if(handRig.thumb.ip)   handRig.thumb.ip.rotation.x   = -clampRad(fingers.thumb.ip);
+                if(handRig.thumb.root) handRig.thumb.root.rotation.z = THREE.MathUtils.degToRad(-35 + fingers.thumb.cmc);
+            }
+
+        } catch(e) {
+            console.error('Error in updateHandAnimation:', e);
+        }
+    }
+    
+    function startHandPickup() {
+        console.log('🖐️ Hand of God approaching...');
+        console.log('Starting pickup - Cat at:', x.toFixed(1), y.toFixed(1));
+        handState = 'approaching';
+        handStartTime = performance.now();
+        handTargetX = x;
+        handTargetY = y;
+        // Hand starts from directly above the cat
+        handX = x;
+        handY = y - 400;
+        console.log('Hand starting at:', handX.toFixed(1), handY.toFixed(1));
+        
+        // Reset hand animation - fingers fully extended
+        setFingerFlexion(0);
+        handTilt = -8; // more natural approach tilt
+        
+        if(hand) {
+            hand.style.display = 'block';
+        } else {
+            console.error('❌ Hand element not found!');
+        }
+    }
+    
+    function updateHand(t, dt) {
+        var elapsed = (t - handStartTime) / 1000;
+        
+        // state update
+        
+        switch(handState) {
+            case 'waiting':
+                if(hand) hand.style.display = 'none';
+                if(threeRenderer && threeRenderer.domElement){ threeRenderer.domElement.style.display = 'none'; }
+                break;
+                
+            case 'approaching':
+                // Simpler, more natural hand movement
+                var approachDuration = 0.8; // Faster, more realistic
+                var progress = Math.min(elapsed / approachDuration, 1);
+                var eased = progress * progress * (3 - 2 * progress); // smoother easing
+                
+                // Hand approaches from directly above the cat - CURRENT cat position
+                var currentCatX = x; // Use current cat position, not old target
+                var currentCatY = y;
+                var startX = currentCatX;
+                var startY = currentCatY - 400;
+                var endX = currentCatX; // directly over current cat position
+                var endY = currentCatY - 100; // close enough to grab
+                
+                handX = startX + (endX - startX) * eased;
+                handY = startY + (endY - startY) * eased;
+                
+                console.log('Approaching - handX:', handX.toFixed(1), 'handY:', handY.toFixed(1), 'catX:', x.toFixed(1), 'catY:', y.toFixed(1));
+                
+                // Natural hand rotation toward cat
+                handTilt = -15 + (progress * 10); // slight tilt
+                
+                if(progress >= 1) {
+                    handState = 'grabbing';
+                    handStartTime = t;
+                }
+                break;
+                
+            case 'grabbing':
+                // Quick, simple grab
+                var grabDuration = 0.6; // Much faster
+                var grabProgress = elapsed / grabDuration;
+                
+                // Simple finger closing
+                setFingerFlexion(grabProgress);
+                
+                // Slight wobble for realism
+                handTilt = -5 + Math.sin(grabProgress * Math.PI * 4) * 2;
+                
+                if(elapsed >= grabDuration) {
+                    handState = 'lifting';
+                    handStartTime = t;
+                    catBeingHeld = true;
+                    
+                    // Store cat's velocity for realistic drop
+                    dropVelocityX = vx * 0.2;
+                    dropVelocityY = vy * 0.2;
+                }
+                break;
+                
+            case 'lifting':
+                // Quick, natural lift
+                var liftDuration = 1.0; // Much faster
+                var progress = Math.min(elapsed / liftDuration, 1);
+                var eased = progress * progress; // simple ease-in
+                
+                var startY = handY;
+                var endY = y - 300; // lift higher
+                
+                handY = startY + (endY - startY) * eased;
+                handX += Math.sin(progress * Math.PI) * 10; // slight arc motion
+                
+                // Cat follows hand naturally
+                if(catBeingHeld) {
+                    x = handX;
+                    y = handY + 150; // cat hangs below larger hand
+                    vx = 0;
+                    vy = 0;
+                    w *= 0.9; // dampen rotation
+                }
+                
+                if(progress >= 1) {
+                    handState = 'dropping';
+                    handStartTime = t;
+                }
+                break;
+                
+            case 'dropping':
+                // Simple drop
+                var dropDuration = 0.3; // Very quick
+                
+                if(elapsed < 0.1) {
+                    // Release cat immediately
+                    catBeingHeld = false;
+                    
+                    // Natural drop velocity
+                    vx = dropVelocityX + (Math.random() - 0.5) * 50;
+                    vy = 50; // slight downward push
+                    w = (Math.random() - 0.5) * 1;
+                }
+                
+                // Open hand quickly
+                setFingerFlexion(1.0 - (elapsed / dropDuration));
+                
+                if(elapsed >= dropDuration) {
+                    handState = 'retreating';
+                    handStartTime = t;
+                    setFingerFlexion(0);
+                    handTilt = 0;
+                }
+                break;
+                
+            case 'retreating':
+                // Hand moves away
+                var retreatDuration = 1.0;
+                var progress = Math.min(elapsed / retreatDuration, 1);
+                var eased = progress * progress; // ease-in
+                
+                var startX = handX;
+                var startY = handY;
+                var endX = handX + 200;
+                var endY = -150;
+                
+                handX = startX + (endX - startX) * eased;
+                handY = startY + (endY - startY) * eased;
+                
+                if(progress >= 1) {
+                    // Reset everything for next cycle
+                    handState = 'waiting';
+                    catBeingHeld = false;
+                    setFingerFlexion(0); // Reset fingers to extended position
+                    handTilt = 0;
+                    // Reset timers; allow ground timer to accumulate anew
+                    contactTime = 0;
+                    timeGrounded = 0;
+                    if(hand) hand.style.display = 'none';
+                    // cycle complete
+                }
+                break;
+        }
+        
+        // Update hand animation (WebGL drives positioning; avoid CSS transforms on #hand)
+        if(handState !== 'waiting' && hand) {
+            hand.style.transform = '';
+            hand.style.display = 'block';
+            updateHandAnimation();
+        }
+
+        // HUD removed
+    }
+
+    // Ground contact state
+    var isGrounded = false;
+    var groundContactNormal = {x: 0, y: 1};
+    var groundContactPoint = {x: 0, y: 0};
+    
+    // Hand pickup system
+    var hand = document.getElementById('hand');
+    var handState = 'waiting'; // waiting, approaching, grabbing, lifting, dropping, retreating
+    var handX = 0, handY = 0;
+    var handStartTime = 0;
+    var pickupStartTime = 0;
+    var catBeingHeld = false;
+    var handTargetX = 0, handTargetY = 0;
+    var dropVelocityX = 0, dropVelocityY = 0;
+    
+    // Medically accurate hand animation variables
+    var handTilt = 0; // tilt angle for natural movement
+    
+    // Individual finger control (based on human anatomy)
+    var fingers = {
+        thumb: {
+            // Thumb has unique movement - opposition and flexion
+            cmc: 0,    // Carpometacarpal joint (base rotation)
+            mcp: 0,    // Metacarpophalangeal joint 
+            ip: 0      // Interphalangeal joint
+        },
+        index: {
+            mcp: 0,    // Metacarpophalangeal joint (knuckle)
+            pip: 0,    // Proximal interphalangeal joint
+            dip: 0     // Distal interphalangeal joint
+        },
+        middle: {
+            mcp: 0,
+            pip: 0,
+            dip: 0
+        },
+        ring: {
+            mcp: 0,
+            pip: 0,
+            dip: 0
+        },
+        pinky: {
+            mcp: 0,
+            pip: 0,
+            dip: 0
+        }
+    };
+    
+    // Check if hand element exists
+    console.log('Hand element initialized:', hand ? 'Found' : 'Not found');
+    if(!hand) {
+        console.error('Hand element not found during initialization!');
+    }
+    
+    function collide(dt){ 
+        var gy = groundY(x);
+        var penetration = (y + R) - gy;
+        var wasGrounded = isGrounded;
+        
+        // Check if we're in contact with ground
+        isGrounded = penetration > -2.0; // Small tolerance for floating
+        
+        if(!isGrounded) {
+            return false;
+        }
+        
+        // Calculate accurate surface normal using finite differences
+        var dx = 2.0;
+        var slope = (groundY(x + dx) - groundY(x - dx)) / (2 * dx);
+        var nx = -slope;
+        var ny = 1.0;
+        var nlen = Math.sqrt(nx * nx + ny * ny);
+        nx /= nlen;
+        ny /= nlen;
+        
+        groundContactNormal.x = nx;
+        groundContactNormal.y = ny;
+        
+        // Contact point on surface
+        groundContactPoint.x = x - nx * R;
+        groundContactPoint.y = y - ny * R;
+        
+        // Position correction for penetration
+        if(penetration > 0.1) {
+            var correction = penetration * 0.9; // Strong correction
+            x -= nx * correction;
+            y -= ny * correction;
+            penetration = (y + R) - groundY(x); // Recalculate
+        }
+        
+        // Calculate relative velocity at contact point
+        var contactVelX = vx - w * ny * R;
+        var contactVelY = vy + w * nx * R;
+        
+        // Decompose into normal and tangential components
+        var normalVel = contactVelX * nx + contactVelY * ny;
+        var tangentX = -ny;
+        var tangentY = nx;
+        var tangentialVel = contactVelX * tangentX + contactVelY * tangentY;
+        
+        var applied = false;
+        
+        // Normal collision response (bouncing) - cats don't bounce much!
+        if(normalVel < -0.01) { // Moving into ground
+            // Cats are excellent at absorbing impact - very low restitution
+            var impactSpeed = Math.abs(normalVel * pxPerMeter); // convert to real speed
+            var restitution;
+            
+            if(impactSpeed < 1.0) { // gentle landing
+                restitution = 0.0; // no bounce for gentle impacts
+            } else if(impactSpeed < 3.0) { // moderate impact
+                restitution = 0.05; // tiny bounce
+            } else if(impactSpeed < 6.0) { // hard impact  
+                restitution = 0.15; // small bounce
+            } else { // very hard impact
+                restitution = 0.25; // cats still absorb most energy
+            }
+            
+            // Reduce restitution if already on ground (cats settle quickly)
+            if(wasGrounded) restitution *= 0.3;
+            
+            var normalImpulse = -(1 + restitution) * normalVel;
+            
+            // Apply normal impulse
+            var invMassNormal = 1/mass + (R * R) / I;
+            var jn = normalImpulse / invMassNormal;
+            
+            vx += jn * nx / mass;
+            vy += jn * ny / mass;
+            w += (R * jn * tangentX) / I; // Torque from normal force
+            
+            applied = true;
+            
+            // Add impact bruise and possible blood for significant collisions
+            if(Math.abs(jn) > 0.9) {
+                addBruiseFromWorld(groundContactPoint.x, groundContactPoint.y, Math.abs(jn));
+                maybeDripBlood(groundContactPoint.x, groundContactPoint.y, Math.abs(jn));
+            }
+        }
+        
+        // Friction response
+        var normalForce = mass * g * Math.abs(ny) / pxPerMeter; // Weight component in N
+        
+        // Recalculate tangential velocity after normal impulse
+        contactVelX = vx - w * ny * R;
+        contactVelY = vy + w * nx * R;
+        tangentialVel = contactVelX * tangentX + contactVelY * tangentY;
+        
+        // Rolling and sliding friction with no-slip transition
+        var invMassTangent = 1/mass + (R * R) / I;
+        var stopImpulse = -tangentialVel / invMassTangent;
+        var maxStaticImpulse = muStatic * normalForce * dt;
+        var frictionImpulse;
+        if(Math.abs(stopImpulse) <= maxStaticImpulse){
+            // Static friction: enforce rolling without slipping
+            frictionImpulse = stopImpulse;
+        } else {
+            // Kinetic friction: oppose motion
+            var kineticImpulse = muKinetic * normalForce * dt;
+            frictionImpulse = tangentialVel > 0 ? -kineticImpulse : kineticImpulse;
+        }
+        // Apply friction impulse
+        vx += frictionImpulse * tangentX / mass;
+        vy += frictionImpulse * tangentY / mass;
+        w -= (R * frictionImpulse) / I;
+        applied = true;
+        
+        // Rolling resistance when moving slowly on ground
+        if(isGrounded && Math.abs(vx) > 0.1) {
+            var resistanceForce = rollingFrictionCoeff * normalForce; // N
+            var resistanceAccel = resistanceForce / mass * pxPerMeter; // px/s^2
+            
+            if(vx > 0) {
+                vx = Math.max(0, vx - resistanceAccel * dt);
+            } else {
+                vx = Math.min(0, vx + resistanceAccel * dt);
+            }
+        }
+        
+        // Angular damping on ground contact
+        if(isGrounded) {
+            w *= Math.pow(0.85, dt * 60); // Frame-rate independent damping
+        }
+        
+        return applied;
+    }
+
+    var rollingAccum=0;
+    function step(t){ 
+        var dtFull = Math.min(0.020, (t-last)/1000); // Reasonable timestep
+        last = t; 
+        var substeps = 2; // REDUCED from 6 - was making everything too slow
+        var dt = dtFull / substeps;
+        
+        for(var k=0; k<substeps; k++){ 
+            // Move tornado across screen, loop around
+            tornado.x += tornado.vx * dt;
+            tornado.angle += tornado.spin * dt;
+            if(tornado.x > innerWidth + 240){ tornado.x = -240; tornado.y = innerHeight*0.55 + Math.sin(t*0.0003)*innerHeight*0.22; }
+            // Wind forces
+            var air = windAt(x, y, t); 
+            var windVelX = air.wx / pxPerMeter; // Convert to m/s
+            var windVelY = air.wy / pxPerMeter;
+            
+            // Cat velocity in m/s
+            var catVelX = vx / pxPerMeter;
+            var catVelY = vy / pxPerMeter;
+            
+            // Relative velocity (cat relative to air)
+            var relVelX = catVelX - windVelX;
+            var relVelY = catVelY - windVelY;
+            var relSpeed = Math.hypot(relVelX, relVelY);
+            
+            // Forces
+            var ax = 0, ay = g;
+            
+            // Wind resistance - cat responds to strong winds but still falls naturally
+            var windMagnitude = Math.hypot(air.wx, air.wy);
+            
+            // Apply wind forces directly when winds are strong
+            if(windMagnitude > 50) { // Only when winds are significant
+                var windForce = Math.min(windMagnitude * 0.02, 150); // reduce coupling and cap
+                ax += (air.wx / windMagnitude) * windForce;
+                ay += (air.wy / windMagnitude) * windForce;
+            }
+            
+            // Very light air resistance only at extreme speeds
+            if(Math.abs(vy) > 400) { // Only when falling extremely fast
+                var dragMagnitude = 0.05 * Math.abs(vy); // Minimal drag
+                ay += vy > 0 ? -dragMagnitude : dragMagnitude;
+            }
+            
+            // Wind effects are reduced when cat is near ground (ground effect)
+            var groundEffect = 1.0;
+            var heightAboveGround = (y + R) - groundY(x);
+            if(heightAboveGround < R * 2) { // within 2 radii of ground
+                groundEffect = Math.max(0.3, heightAboveGround / (R * 2));
+            }
+            
+            // DRAMATIC tornado effects - very visible on cat
+            var dxT = x - tornado.x, dyT = y - tornado.y; var rT = Math.hypot(dxT, dyT) + 1e-3;
+            var fallT = 1 / (1 + (rT / (tornado.core*2.0))*(rT / (tornado.core*2.0))); // Larger effective range
+            
+            // Tornado forces are strong but still allow gravity to work
+            var tornadoGroundEffect = groundEffect; // Allow normal ground effect, don't override gravity
+            
+        // POWERFUL swirl acceleration - cat gets thrown around dramatically (horizontal only)
+            var tx = -dyT / rT, ty = dxT / rT;
+        var swirlAcc = (tornado.strength * 6.0 * fallT) / Math.max(60, rT); // reduce strength and minimum radius
+        ax += tx * swirlAcc * tornadoGroundEffect;
+        // prevent vertical swirl from counteracting gravity
+            
+            // Strong inward suction and moderate vertical lift (allow gravity to work)
+            var massScale = Math.max(1, mass/15);
+            var tornadoPull = (tornado.bodyPull * 4.0 * fallT) / massScale; // less pull
+            var tornadoLift = (tornado.lift * 1.2 * fallT) / massScale; // far less lift
+            
+            ax += (-dxT / rT) * tornadoPull;
+            ay += (-dyT / rT) * tornadoPull - tornadoLift;
+
+            // Ensure gravity dominance: clamp total upward accel so cat never floats
+            if(ay < g * 0.6) { // net upward too strong -> limit
+                ay = g * 0.6; // keep at least 60% gravity pulling down
+            }
+            
+            // Extra rotational effects from tornado
+            if(fallT > 0.1) { // Close to tornado
+                var tornadoSpin = tornado.spin * fallT * 3.0; // Make cat spin in tornado
+                w += tornadoSpin * dt;
+            }
+            
+            // Cat righting reflex - cats naturally try to orient upright when falling
+            if(!isGrounded && Math.abs(vy) > 50) { // falling fast enough to trigger reflex
+                var targetOrientation = 0; // upright position
+                var orientationError = w - targetOrientation;
+                
+                // Cats can generate torque in air through body movements
+                var rightingTorque = -orientationError * landingOrientationForce * 0.0001;
+                
+                // Stronger correction when falling faster
+                var fallSpeedFactor = Math.min(2.0, Math.abs(vy) / 200);
+                rightingTorque *= fallSpeedFactor;
+                
+                // Apply righting torque
+                w += rightingTorque * dt;
+                
+                // Limit maximum rotation speed (cats can't spin infinitely fast)
+                var maxRotSpeed = 4.0;
+                w = Math.max(-maxRotSpeed, Math.min(maxRotSpeed, w));
+            }
+            
+            // Integrate velocity with angular damping in air
+            var oldVx = vx, oldVy = vy;
+            vx += ax * dt;
+            vy += ay * dt;
+            
+            // Terminal velocity limiting (cats reach terminal velocity)
+            if(Math.abs(vy) > maxTerminalVelocity) {
+                vy = vy > 0 ? maxTerminalVelocity : -maxTerminalVelocity;
+            }
+            
+            // aerodynamic angular damping proportional to speed
+            var airSpinDamp = Math.max(0.92, 1 - 0.03 * relSpeed);
+            w *= Math.pow(airSpinDamp, dt*60);
+            
+            // Use average velocity for position update (more accurate)
+            x += (oldVx + vx) * 0.5 * dt;
+            y += (oldVy + vy) * 0.5 * dt;
+            
+            // Boundary collisions - cats absorb impact well
+            if(x - R < 0) { 
+                x = R; 
+                vx = Math.abs(vx) * 0.2; // Cats absorb energy better than balls
+                w *= -0.5; // Less angular velocity change (cats control rotation)
+            } 
+            if(x + R > gcv.width) { 
+                x = gcv.width - R; 
+                vx = -Math.abs(vx) * 0.2; // Cats absorb energy well
+                w *= -0.5; 
+            } 
+            if(y - R < 0) { 
+                y = R; 
+                vy = Math.max(50, vy * 0.05); // Give downward velocity to ensure cat falls
+                w *= 0.6; // Better rotational control
+            }
+            
+            // Ground collision with new realistic physics
+            var hit = collide(dt);
+            
+            var currentGy = groundY(x);
+            var approxOnGround = (y + R >= currentGy - 4);
+
+            if(approxOnGround && !catBeingHeld) {
+                contactTime += dt;
+                timeGrounded += dt;
+                rollingAccum += dt;
+                
+                // Ensure cat stays properly positioned on ground
+                var currentPenetration = (y + R) - currentGy;
+                if(currentPenetration > 0.5) {
+                    y = currentGy - R;
+                }
+                
+                // Add rolling bruises when tumbling on ground
+                if(rollingAccum > 0.12 && Math.abs(w) > 0.6) {
+                    addRollingBruise();
+                    rollingAccum = 0;
+                }
+                
+                // Realistic cat settling behavior - cats are good at coming to rest
+                var speed = Math.hypot(vx, vy);
+                var angularSpeed = Math.abs(w);
+                
+                // Cats settle more quickly and effectively than balls
+                if(speed < 25 && angularSpeed < 0.4) {
+                    // Cats use their legs and balance to settle quickly
+                    var settleFactor = 0.96; // faster settling than before
+                    
+                    // Additional friction from cat's paws and body contact
+                    if(speed < 10) settleFactor = 0.92; // even faster when very slow
+                    
+                    vx *= settleFactor;
+                    vy *= settleFactor;
+                    w *= 0.93; // cats control their rotation well
+                    
+                    // Cats can come to complete rest more easily
+                    if(speed < 3 && angularSpeed < 0.08) {
+                        vx *= 0.85; // strong damping
+                        vy = Math.max(-1, vy * 0.85); // settle into comfortable position
+                        w *= 0.7; // cats stop rotating when at rest
+                        
+                        // Complete rest for very small movements
+                        if(speed < 1 && angularSpeed < 0.03) {
+                            vx *= 0.5;
+                            vy *= 0.5;
+                            w *= 0.5;
+                        }
+                    }
+                }
+            } else if(!catBeingHeld) {
+                contactTime = 0;
+                timeGrounded = 0;
+                rollingAccum = 0;
+                
+                // Air resistance on rotation when airborne (handled above per-substep)
+            }
+
+            // Cat-tree collision: treat tree trunks as cylinders
+            for(var ti=0; ti<trees.length; ti++){
+                var tr = trees[ti];
+                var trunkTopX = tr.x; var trunkTopY = tr.y - tr.h*0.6; // thicker segment
+                var trunkBottomX = tr.x; var trunkBottomY = tr.y;
+                var trunkRadius = Math.max(8, Math.min(14, tr.h*0.05));
+                // distance from cat center to trunk line segment
+                var vx1 = trunkTopX - trunkBottomX, vy1 = trunkTopY - trunkBottomY;
+                var vx2 = x - trunkBottomX,       vy2 = y - trunkBottomY;
+                var segLen2 = vx1*vx1 + vy1*vy1 + 1e-6;
+                var tproj = Math.max(0, Math.min(1, (vx1*vx2 + vy1*vy2)/segLen2));
+                var cx = trunkBottomX + vx1*tproj; var cy = trunkBottomY + vy1*tproj;
+                var dxC = x - cx, dyC = y - cy; var dist = Math.hypot(dxC, dyC);
+                var minDist = R + trunkRadius;
+                if(dist < minDist){
+                    // penetration resolution
+                    var nmx = dxC/(dist+1e-6), nmy = dyC/(dist+1e-6);
+                    var penetration = (minDist - dist);
+                    x += nmx * penetration;
+                    y += nmy * penetration;
+                    // impulse-based bounce
+                    var vRel = vx*nmx + vy*nmy;
+                    if(vRel < 0){
+                        var e = 0.2; // restitution
+                        var j = -(1+e)*vRel * mass;
+                        vx += (j/mass) * nmx;
+                        vy += (j/mass) * nmy;
+                        // add spin from tangential component
+                        var txn = -nmy, tyn = nmx;
+                        var vTan = vx*txn + vy*tyn;
+                        w += (vTan * R) / I * 0.2;
+                    }
+                    // push tree a bit (increase sway)
+                    tr.av += (penetration * 0.02) * (Math.random()>0.5?1:-1);
+                    }
+                    // chance to leave a blood stain at impact point if bruising severe
+                    maybeDripBlood(cx, cy, penetration*0.8 + Math.abs(vRel)*0.2);
+            }
+        }
+        
+        // Update hand animation
+        updateHand(t, dtFull);
+        
+        // Render
+        // Draw 2D overlays
+        drawGround();
+        drawHouses();
+        stepVeg(t, dtFull);
+        drawWind(t);
+        renderBruises(dtFull);
+        // draw blood stains on ground
+        sctx.clearRect(0,0,scv.width, scv.height);
+        for(var bi=0; bi<bloodStains.length; bi++){
+            var st = bloodStains[bi];
+            sctx.fillStyle = 'rgba(110,20,24,'+st.alpha.toFixed(2)+')';
+            sctx.beginPath(); sctx.arc(st.x, st.y, st.r, 0, Math.PI*2); sctx.fill();
+            // drip elongation downhill based on slope
+            var slope = groundSlope(st.x);
+            sctx.beginPath(); sctx.ellipse(st.x + slope*st.r*0.6, st.y+2, st.r*0.8, st.r*0.5, Math.atan2(1,slope||0.0001), 0, Math.PI*2);
+            sctx.fill();
+            // fade slightly over time
+            st.alpha *= Math.pow(0.997, dtFull*60);
+        }
+        // Render 3D hand
+        updateWebGL();
+        // Step rain after ground is drawn (so splashes align)
+        stepRain(t, dtFull);
+        
+        // Apply rotation and position
+        cat.style.transform = 'translate(' + (x-R) + 'px,' + (y-R) + 'px) rotate(' + w + 'rad)';
+        
+        // Hand pickup system - trigger occasionally when cat settles
+        var speed = Math.hypot(vx, vy);
+        var angularSpeed = Math.abs(w);
+        var gyNow = groundY(x);
+        var restingOnGround = Math.abs((y + R) - gyNow) < 12.0;
+        
+        // VERY frequent hand interactions for testing the positioning
+        var nowMs = performance.now();
+        var sinceLastHand = (nowMs - lastHandStartMs) / 1000;
+        if(handState === 'waiting' && sinceLastHand > 2.0 && restingOnGround) {
+            console.log('Triggering hand pickup - Cat grounded at:', x.toFixed(1), y.toFixed(1));
+            startHandPickup();
+            lastHandStartMs = nowMs;
+        }
+        // Very frequent fallback
+        else if(handState === 'waiting' && sinceLastHand > 4.0) {
+            console.log('Fallback hand pickup triggered');
+            startHandPickup();
+            lastHandStartMs = nowMs;
+        }
+        
+        requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+  })();
+  </script>
+</body>
+</html>

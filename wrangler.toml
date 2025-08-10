@@ -1,0 +1,11 @@
+name = "lexiorbit"
+compatibility_date = "2024-05-12"
+pages_build_output_dir = "."
+
+[[kv_namespaces]]
+binding = "SCORES"
+id = "86e1ee11d1b54c00a2ec4b64d6c53a85"
+
+# Remove invalid routes block for Pages
+
+
