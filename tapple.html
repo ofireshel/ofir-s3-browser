@@ -2,11 +2,15 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
   <title>LexiOrbit</title>
   <style>
+    :root { 
+      --safe-top: env(safe-area-inset-top, 0px);
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
+    }
     html, body { 
-      height: 100%; margin: 0; 
+      height: 100dvh; margin: 0; 
       font-family: 'Segoe UI', Arial, sans-serif; 
       background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); 
       color: #e2e8f0; overflow: hidden; 
@@ -16,7 +20,7 @@
       display: grid; grid-template-rows: auto 1fr auto; 
     }
     header { 
-      display:flex; align-items:center; gap:12px; padding:12px 16px; 
+      display:flex; align-items:center; gap:12px; padding:calc(8px + var(--safe-top)) 16px 12px 16px; 
       background: rgba(14,23,42,0.95); backdrop-filter: blur(8px); 
       border-bottom:1px solid #334155; box-shadow: 0 2px 8px rgba(0,0,0,0.3); 
     }
@@ -32,7 +36,7 @@
     }
     header a:hover { background: rgba(147,197,253,0.1); }
     #hud { 
-      display:flex; gap:16px; align-items:center; padding:12px 16px; 
+      display:flex; gap:16px; align-items:center; padding:12px 16px calc(10px + var(--safe-bottom)) 16px; 
       background: rgba(14,23,42,0.95); backdrop-filter: blur(8px); 
       border-top:1px solid #334155; box-shadow: 0 -2px 8px rgba(0,0,0,0.3); 
       position: relative;
@@ -65,12 +69,22 @@
       padding:6px 12px; border-radius:999px; border:1px solid #475569; 
       background: rgba(30,41,59,0.8); font-size:13px; font-weight:500; 
     }
-    #log { 
-      position: absolute; left: 20px; bottom: 120px; 
-      background: rgba(2,6,23,0.9); border:1px solid #334155; 
-      border-radius:12px; padding:12px 16px; font-size:14px; 
-      max-width: 50ch; pointer-events:none; 
-      box-shadow: 0 4px 12px rgba(0,0,0,0.4); 
+    /* Removed floating log ribbon on mobile/desktop */
+
+    /* Mobile adjustments */
+    @media (max-width: 768px) and (orientation: portrait) {
+      header h1 { font-size: 18px; }
+      #hud { flex-wrap: wrap; justify-content: center; padding: 8px 12px calc(6px + var(--safe-bottom)) 12px; }
+      #hud > span:first-child { display: none; } /* Hide literal 'Category:' label */
+      #hud > span[style*='margin-left:auto'] { display: none !important; } /* Hide spacer */
+      #category { font-size: 24px; max-width: 90vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      #timeLabel { font-size: 16px; }
+      #timer { font-size: 34px; }
+      #timeBlock { position: static; transform: none; order: 3; width: 100%; display: flex; justify-content: center; }
+      #wordForm { order: 4; width: 100%; display: flex; justify-content: center; gap: 8px; }
+      #wordForm button { padding: 8px 10px; }
+      #log { display: none !important; }
+      #shuffleCatBtn { display: none; }
     }
   </style>
 </head>
@@ -89,27 +103,457 @@
       <span>Category:</span>
       <span id="category"></span>
       <span style="margin-left:auto"></span>
-      <span id="timeBlock"><span id="timeLabel">Time:</span><span id="timer">10.0</span></span>
+              <span id="timeBlock"><span id="timeLabel">Time:</span><span id="timer">12.0</span></span>
+      <span id="heardChip" class="chip" style="display:none;">Heard: —</span>
       <div id="wordForm" style="display:flex; gap:10px; align-items:center;">
         <button type="button" id="newRoundBtn">New Round</button>
         <button type="button" id="shuffleCatBtn">Shuffle Category</button>
+        <button type="button" id="voiceBtn" title="Voice (beta)">🎤 Voice (beta)</button>
       </div>
     </div>
   </div>
 
   <script>
     console.log('Starting Tapple game with 2D Canvas...');
+    const isMobile = /iPhone|Android|iPad|iPod/i.test(navigator.userAgent) || (Math.min(screen.width, screen.height) < 768);
+    const isIOS = /iP(hone|od|ad)/i.test(navigator.platform) || (/iPhone|iPad|iPod/i.test(navigator.userAgent) && /Safari/i.test(navigator.userAgent) && !/Chrome/i.test(navigator.userAgent));
+
+    // Voice (beta) — client-only using Web Speech API when available
+    const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition || null;
+    let recognition = null;
+    let voiceActive = false;
+    let lastVoiceWord = '';
+    let lastVoiceAt = 0;
+    let lastClaimAt = 0;
+    // MediaRecorder streaming + throttle to improve responsiveness
+    let mrStream = null, mrRec = null;
+    let sttBusy = false, sttLastAt = 0;
+    let mrReqTimer = null, mrStopTimer = null;
+    let heardHideTimer = null;
+    let claimCooldownUntil = 0; // block multiple claims from one utterance
+    function showHeard(text) {
+      const chip = document.getElementById('heardChip');
+      if (!chip) return;
+      chip.textContent = `Heard: ${text}`;
+      chip.style.display = 'inline-block';
+      if (heardHideTimer) clearTimeout(heardHideTimer);
+      heardHideTimer = setTimeout(() => { chip.style.display = 'none'; }, 2500);
+    }
+
+    // Audio utils: encode 16 kHz mono WAV for better STT accuracy
+    function writeString(view, offset, str) {
+      for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+    }
+    function encodeWav(float32Samples, sampleRate) {
+      const numSamples = float32Samples.length;
+      const bytesPerSample = 2; // 16-bit PCM
+      const blockAlign = bytesPerSample * 1; // mono
+      const byteRate = sampleRate * blockAlign;
+      const dataSize = numSamples * bytesPerSample;
+      const buffer = new ArrayBuffer(44 + dataSize);
+      const view = new DataView(buffer);
+      // RIFF header
+      writeString(view, 0, 'RIFF');
+      view.setUint32(4, 36 + dataSize, true);
+      writeString(view, 8, 'WAVE');
+      // fmt chunk
+      writeString(view, 12, 'fmt ');
+      view.setUint32(16, 16, true); // PCM chunk size
+      view.setUint16(20, 1, true); // audio format PCM
+      view.setUint16(22, 1, true); // channels: mono
+      view.setUint32(24, sampleRate, true);
+      view.setUint32(28, byteRate, true);
+      view.setUint16(32, blockAlign, true);
+      view.setUint16(34, 16, true); // bits per sample
+      // data chunk
+      writeString(view, 36, 'data');
+      view.setUint32(40, dataSize, true);
+      // samples
+      let offset = 44;
+      for (let i = 0; i < numSamples; i++) {
+        let s = Math.max(-1, Math.min(1, float32Samples[i] || 0));
+        view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+        offset += 2;
+      }
+      return new Blob([buffer], { type: 'audio/wav' });
+    }
+    async function blobToWav16kMono(blob) {
+      try {
+        const arrayBuf = await blob.arrayBuffer();
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        const ac = new AudioCtx();
+        const audioBuf = await ac.decodeAudioData(arrayBuf);
+        // mono (use channel 0)
+        const src = audioBuf.getChannelData(0);
+        const srcRate = audioBuf.sampleRate || 44100;
+        const targetRate = 16000;
+        const ratio = srcRate / targetRate;
+        const outLen = Math.max(1, Math.floor(src.length / ratio));
+        const out = new Float32Array(outLen);
+        for (let i = 0; i < outLen; i++) {
+          const idx = i * ratio;
+          const i0 = Math.floor(idx);
+          const i1 = Math.min(src.length - 1, i0 + 1);
+          const t = idx - i0;
+          out[i] = src[i0] * (1 - t) + src[i1] * t;
+        }
+        await ac.close().catch(()=>{});
+        return encodeWav(out, targetRate);
+      } catch (e) {
+        return null;
+      }
+    }
+    function claimLetter(letter) {
+      if (!gameState.gameActive) return;
+      if (gameState.usedLetters.has(letter)) return;
+      gameState.turnHasPressed = true;
+      gameState.usedLetters.add(letter);
+      gameState.selectedLetter = null;
+      playSound('click');
+      updateBackgroundForLetter(letter);
+      drawGame();
+      if (gameState.usedLetters.size === gameState.letters.length) {
+        showLog('🎉 Perfect! All letters used!', 'victory');
+        gameState.gameActive = false;
+        const usedRaw = gameState.usedLetters.size;
+        const cat = gameState.currentCategory;
+        const distinct = new Set((CATEGORY_BANK[cat]||[]).map(w => w[0]?.toUpperCase())).size;
+        const total = Math.min(20, distinct || gameState.letters.length);
+        const used = Math.min(usedRaw, total);
+        gameState.overlayMessage = 'Perfect! All letters used!';
+        gameState.overlayScoreText = `Score: ${used}/${total} (${Math.round((used/total)*100)}%)`;
+        backgroundWords = [];
+        drawGame();
+        (async ()=>{
+          try{
+            let player = localStorage.getItem('lexiorbit_player');
+            if (!player) { player = 'Player-' + Math.floor(Math.random()*1e6).toString(36).toUpperCase(); localStorage.setItem('lexiorbit_player', player); }
+            const resp = await fetch('/api/scores', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ player, used, total })});
+            const data = await resp.json().catch(()=>null);
+            if (data && data.top5) { window.__topScores = { top5: data.top5 }; drawGame(); } else { if (typeof fetchTopScores === 'function') fetchTopScores(); }
+          }catch(e){}
+        })();
+        return;
+      }
+      startNextTurn();
+    }
+
+    function claimFromText(raw) {
+      const text = (raw || '').trim();
+      if (!text) return;
+      const nowTs = Date.now();
+      if (nowTs < claimCooldownUntil) { return; }
+      // Normalize helpers and fuzzy matching
+      const norm = (s) => (s || '').toLowerCase().replace(/[^a-z]/g, '');
+      const dist = (a, b) => {
+        const m = a.length, n = b.length;
+        if (m === 0) return n; if (n === 0) return m;
+        // Early exit if very different
+        if (Math.abs(m - n) > Math.ceil(Math.max(m, n) * 0.5)) return Math.max(m, n);
+        const dp = new Array(n + 1);
+        for (let j = 0; j <= n; j++) dp[j] = j;
+        for (let i = 1; i <= m; i++) {
+          let prev = dp[0]; dp[0] = i;
+          for (let j = 1; j <= n; j++) {
+            const temp = dp[j];
+            if (a[i - 1] === b[j - 1]) dp[j] = prev;
+            else dp[j] = Math.min(prev + 1, dp[j] + 1, dp[j - 1] + 1);
+            prev = temp;
+          }
+        }
+        return dp[n];
+      };
+      const bestFuzzyMatch = (tokens, bankWords) => {
+        let best = null; // {word, score, bn}
+        for (const tk of tokens) {
+          const tn = norm(tk);
+          if (!tn) continue;
+          for (const w of bankWords) {
+            const bn = norm(w);
+            if (!bn) continue;
+            const d = dist(tn, bn);
+            const tol = Math.ceil(Math.max(2, bn.length * 0.3));
+            if (d <= tol) {
+              const score = d / Math.max(1, bn.length);
+              if (!best || score < best.score) best = { word: w, score, bn };
+            }
+          }
+        }
+        return best;
+      };
+      // Build normalized bank map
+      const cat = gameState.currentCategory;
+      const bank = (CATEGORY_BANK[cat] || []).map(w => (w||'').toString());
+      let matchedNorm = '';
+      const tokens = text.split(/[^A-Za-z]+/).filter(Boolean);
+      // Prefer exact token match against bank, in order
+      const bankNormSet = new Set(bank.map(w => norm(w)));
+      for (const tk of tokens) {
+        const tn = norm(tk);
+        if (tn && bankNormSet.has(tn)) { matchedNorm = tn; break; }
+      }
+      // Fallback to fuzzy on tokens only
+      if (!matchedNorm) {
+        const fuzzy = bestFuzzyMatch(tokens, bank);
+        if (fuzzy) matchedNorm = fuzzy.bn;
+      }
+      if (!matchedNorm) { showHeard(text); return; }
+      showHeard(text);
+      // De-dupe same word within 1.5s (reduced for faster play)
+      const now = Date.now();
+      if (matchedNorm === lastVoiceWord && (now - lastVoiceAt) < 1500) return;
+      lastVoiceWord = matchedNorm; lastVoiceAt = now;
+      // Rate-limit claims to avoid double-claim on one utterance (reduced)
+      if ((now - lastClaimAt) < 500) return;
+      // Validate: match against normalized bank entries
+      if (!bankNormSet.has(matchedNorm)) { showLog('Not a valid word for this category', 'error'); return; }
+      const letter = matchedNorm[0] ? matchedNorm[0].toUpperCase() : '';
+      // Only allow letters present on the board and not already used
+      if (!gameState.letters.includes(letter)) { showLog(`"${letter}" not on board`, 'error'); return; }
+      if (gameState.usedLetters.has(letter)) { showLog(`"${letter}" already used`, 'info'); return; }
+      lastClaimAt = now;
+      claimCooldownUntil = now + 1000; // Brief cooldown to prevent double-claims
+      claimLetter(letter);
+      // No need to rollover - keep listening continuously
+    }
+
+    function forceRecorderRollover() {
+      try {
+        if (mrRec && mrRec.state === 'recording') {
+          mrRec.stop(); // onstop will auto-restart shortly
+        }
+      } catch {}
+    }
+
+    function initRecognition() {
+      if (!SpeechRec || recognition) return;
+      recognition = new SpeechRec();
+      recognition.lang = 'en-US';
+      recognition.interimResults = true;
+      recognition.maxAlternatives = 1;
+      recognition.continuous = true;
+      recognition.onresult = (event) => {
+        try {
+          const last = event.results[event.results.length - 1];
+          if (!last || !last[0]) return;
+          const text = (last[0].transcript || '').trim();
+          if (text) showHeard(text); // show ASAP, even interim
+          if (last.isFinal && text) {
+            claimFromText(text);
+          }
+        } catch {}
+      };
+      recognition.onerror = () => { /* keep running in beta; user can toggle */ };
+      recognition.onend = () => { if (voiceActive && recognition) { try { recognition.start(); } catch {} } };
+    }
+    // Simple dictation overlay for iPhone Safari (no API key needed)
+    function ensureDictationUI() {
+      if (document.getElementById('dictationOverlay')) return;
+      const overlay = document.createElement('div');
+      overlay.id = 'dictationOverlay';
+      overlay.style.position = 'fixed';
+      overlay.style.inset = '0';
+      overlay.style.background = 'rgba(2,6,23,0.92)';
+      overlay.style.display = 'none';
+      overlay.style.zIndex = '1000';
+      overlay.style.color = '#e2e8f0';
+      overlay.style.padding = '24px';
+      overlay.style.boxSizing = 'border-box';
+      overlay.innerHTML = `
+        <div style="max-width:640px;margin:0 auto;display:flex;flex-direction:column;gap:16px;align-items:stretch;">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;">
+            <div style="font-size:20px;font-weight:800;color:#93c5fd;">Voice (iPhone dictation)</div>
+            <button id="dictClose" style="border:2px solid #475569;background:#1e293b;color:#e2e8f0;padding:6px 10px;border-radius:8px;">Close</button>
+          </div>
+          <div style="font-size:14px;color:#cbd5e1;line-height:1.4;">
+            - Tap the field below. If the keyboard doesn’t open, tap it again.<br/>
+            - Tap the microphone on your iPhone keyboard and say a word.<br/>
+            - We’ll capture the first letter and claim it automatically.
+          </div>
+          <input id="dictInput" type="text" autocapitalize="words" autocomplete="off" spellcheck="false" inputmode="text"
+                 placeholder="Tap here, then tap the keyboard mic and speak..."
+                 style="padding:14px 16px;border-radius:10px;border:2px solid #334155;background:#0f172a;color:#e2e8f0;font-size:18px;"/>
+        </div>`;
+      document.body.appendChild(overlay);
+      const input = overlay.querySelector('#dictInput');
+      const close = overlay.querySelector('#dictClose');
+      close.addEventListener('click', () => { stopVoice(); });
+      const handleDict = () => { const val = input.value; if (!val) return; claimFromText(val); input.value = ''; };
+      input.addEventListener('input', handleDict);
+      input.addEventListener('change', handleDict);
+      input.addEventListener('keyup', (e) => { if (e.key === 'Enter') handleDict(); else handleDict(); });
+      input.addEventListener('compositionend', handleDict);
+      input.addEventListener('blur', () => { if (voiceActive) setTimeout(() => { try { input.focus(); } catch {} }, 0); });
+      window.__dictationOverlay = overlay;
+    }
+
+    async function startVoice() {
+      console.log('startVoice called');
+      // Always try to acquire mic first (ensures Safari shows the permission prompt on user gesture)
+      try {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error('no mediaDevices');
+        console.log('Getting user media...');
+        mrStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        console.log('Got media stream:', mrStream);
+        // Prefer Safari-supported types
+        const candidates = [ 'audio/mp4', 'audio/webm;codecs=opus', 'audio/webm', 'audio/mpeg' ];
+        let mt = '';
+        for (const c of candidates) { 
+          if (window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(c)) { 
+            mt = c; 
+            console.log('Using mime type:', mt);
+            break; 
+          } 
+        }
+        if (!window.MediaRecorder) throw new Error('MediaRecorder unsupported');
+        const options = mt ? { mimeType: mt } : {};
+        console.log('Creating MediaRecorder with options:', options);
+        mrRec = new MediaRecorder(mrStream, options);
+          mrRec.ondataavailable = async (e) => {
+            console.log('ondataavailable fired, voiceActive:', voiceActive, 'data size:', e.data?.size);
+            if (!voiceActive) return;
+            
+            // Process any non-empty chunk
+            if (!e.data || e.data.size === 0) {
+              console.log('No data or empty data');
+              return;
+            }
+            
+            const now = Date.now();
+            if (sttBusy || (now - sttLastAt) < 300) {
+              console.log('Skipping due to busy or rate limit');
+              return;
+            }
+            
+            sttBusy = true; sttLastAt = now;
+            try {
+              console.log('Processing audio chunk, size:', e.data.size, 'type:', e.data.type);
+              const form = new FormData();
+              const ext = mt.includes('mp4') ? 'mp4' : (mt.includes('mpeg') ? 'mp3' : 'webm');
+              form.append('file', e.data, `clip.${ext}`);
+              // Provide category hints to improve recognition fidelity
+              try {
+                const cat = gameState.currentCategory;
+                const bank = (CATEGORY_BANK[cat] || []).slice(0, 80).join(', ');
+                form.append('hints', bank);
+              } catch {}
+              const chip = document.getElementById('heardChip');
+              if (chip) { chip.textContent = 'Processing…'; chip.style.display = 'inline-block'; }
+              console.log('Sending to STT endpoint...');
+              const resp = await fetch('/api/stt', { method: 'POST', body: form, cache: 'no-store' });
+              console.log('STT response status:', resp.status);
+              const data = await resp.json().catch(()=>null);
+              console.log('STT response data:', data);
+              const text = (data && (data.text || '').trim()) || '';
+              console.log('Extracted text:', text);
+              if (text && text.length > 0) {
+                showHeard(text); // show immediately
+                claimFromText(text);
+              } else {
+                console.log('No text returned, continuing to listen');
+              }
+              // Always reset to listening after processing
+              setTimeout(() => {
+                if (chip && voiceActive) { chip.textContent = 'Listening…'; }
+              }, 300);
+            } catch (err) {
+              console.log('STT processing error:', err);
+            }
+            sttBusy = false;
+        };
+        mrRec.onerror = () => {};
+        mrRec.onstart = () => {
+          console.log('MediaRecorder started');
+          // Use regular auto-stop/restart approach that works reliably on Safari
+          if (mrReqTimer) clearInterval(mrReqTimer);
+          if (mrStopTimer) clearTimeout(mrStopTimer);
+          
+          // Auto-stop recording after 1.5 seconds to generate data chunks
+          mrStopTimer = setTimeout(() => {
+            try {
+              if (mrRec.state === 'recording') {
+                console.log('Auto-stopping to generate chunk');
+                mrRec.stop();
+              }
+            } catch {}
+          }, 1500);
+        };
+        mrRec.onstop = () => {
+          console.log('MediaRecorder stopped, voiceActive:', voiceActive);
+          if (!voiceActive) return;
+          // Restart after brief delay to continue listening
+          console.log('Restarting recording in 100ms...');
+          setTimeout(() => { 
+            try { 
+              if (voiceActive) mrRec.start(); 
+            } catch {} 
+          }, 100);
+        };
+          console.log('Starting initial recording');
+          try { 
+            mrRec.start(); // Start without timeslice, will auto-stop after 2s
+          } catch {}
+        voiceActive = true;
+        const btn = document.getElementById('voiceBtn');
+        if (btn) { btn.dataset.active = '1'; btn.style.borderColor = '#22c55e'; }
+        // Show listening state in HUD
+        const chip = document.getElementById('heardChip');
+        if (chip) { chip.textContent = 'Listening…'; chip.style.display = 'inline-block'; }
+        return;
+      } catch (e) {
+        // If mic path fails, try browser SpeechRecognition if present
+        if (SpeechRec) {
+          initRecognition();
+          try {
+            recognition.start();
+            voiceActive = true;
+            const btn = document.getElementById('voiceBtn');
+            if (btn) { btn.dataset.active = '1'; btn.style.borderColor = '#22c55e'; }
+            const chip = document.getElementById('heardChip');
+            if (chip) { chip.textContent = 'Listening…'; chip.style.display = 'inline-block'; }
+            return;
+          } catch {}
+        }
+        // fallback to dictation overlay if mic not allowed
+        if (e && (e.name === 'NotAllowedError' || e.name === 'NotFoundError')) {
+          showLog('Microphone blocked. Enable mic for this site in Settings.', 'error');
+        }
+        ensureDictationUI();
+        const o = window.__dictationOverlay; if (o) { o.style.display = 'block'; const input = o.querySelector('#dictInput'); try { input.focus(); } catch {} }
+        voiceActive = true;
+        const btn = document.getElementById('voiceBtn');
+        if (btn) { btn.dataset.active = '1'; btn.style.borderColor = '#22c55e'; }
+        showLog('Voice dictation ready. Tap keyboard mic to speak.', 'info');
+        return;
+      }
+    }
+    function stopVoice() {
+      voiceActive = false;
+      if (recognition) { try { recognition.stop(); } catch {} }
+      if (window.__dictationOverlay) { 
+        try { window.__dictationOverlay.style.display = 'none'; } catch {}
+      }
+      if (mrReqTimer) { clearInterval(mrReqTimer); mrReqTimer = null; }
+      if (mrStopTimer) { clearTimeout(mrStopTimer); mrStopTimer = null; }
+      if (mrRec) { try { mrRec.stop(); } catch {} }
+      if (mrStream) { try { mrStream.getAudioTracks().forEach(t => t.stop()); } catch {} }
+      mrRec = null; mrStream = null; sttBusy = false;
+      const chip = document.getElementById('heardChip');
+      if (chip) { chip.style.display = 'none'; }
+      const btn = document.getElementById('voiceBtn');
+      if (btn) { btn.dataset.active = '0'; btn.style.borderColor = '#475569'; }
+    }
     
     // Game state
     let gameState = {
       currentCategory: '',
       letters: 'ABCDEFGHIJKLMNOPQRST'.split(''),
       usedLetters: new Set(),
-      timeLeft: 10.0,
+      timeLeft: 12.0,
       round: 1,
       gameActive: false,
       selectedLetter: null,
-      // Per-turn state: whether a new letter was pressed during the current 10s window
+      // Per-turn state: whether a new letter was pressed during the current 12s window
       turnHasPressed: false,
       overlayMessage: '',
       overlayScoreText: '',
@@ -127,37 +571,53 @@
       ]
     };
 
-    // Audio context for sounds
+    // Audio (iOS unlock + louder on mobile)
     let audioCtx;
-    try {
-      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    } catch (e) {
-      console.warn('Audio not available:', e);
+    function getAudio() {
+      if (!audioCtx) {
+        const Ctx = window.AudioContext || window.webkitAudioContext;
+        try { audioCtx = new Ctx(); } catch (e) { return null; }
+      }
+      if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+      return audioCtx;
     }
+    function unlockAudioOnce() {
+      const ctx = getAudio();
+      if (!ctx) return;
+      // short quiet ping to satisfy iOS gesture requirement
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.connect(g); g.connect(ctx.destination);
+      const t = ctx.currentTime + 0.01;
+      g.gain.setValueAtTime(0.0001, t);
+      o.start(t); o.stop(t + 0.02);
+    }
+    window.addEventListener('touchend', unlockAudioOnce, { once: true, passive: true });
+    window.addEventListener('pointerdown', unlockAudioOnce, { once: true });
+    window.addEventListener('keydown', unlockAudioOnce, { once: true });
 
     function playSound(type) {
-      if (!audioCtx) return;
-      
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
+      const ctx = getAudio();
+      if (!ctx) return;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
       osc.connect(gain);
-      gain.connect(audioCtx.destination);
-      
-      const now = audioCtx.currentTime;
-      const dur = (type === 'tick') ? 0.12 : 0.3;
-      gain.gain.setValueAtTime(type === 'tick' ? 0.08 : 0.1, now);
-      gain.gain.exponentialRampToValueAtTime(0.006, now + dur);
-      
+      gain.connect(ctx.destination);
+      const now = ctx.currentTime;
+      const isTick = (type === 'tick');
+      const dur = isTick ? 0.14 : 0.32;
+      const base = isMobile ? (isTick ? 0.22 : 0.18) : (isTick ? 0.12 : 0.12);
+      gain.gain.setValueAtTime(base, now);
+      gain.gain.exponentialRampToValueAtTime(0.004, now + dur);
       switch(type) {
-        case 'click': osc.frequency.setValueAtTime(800, now); break;
-        case 'success': osc.frequency.setValueAtTime(1200, now); break;
-        case 'buzz': osc.frequency.setValueAtTime(200, now); break;
-        case 'start': osc.frequency.setValueAtTime(600, now); break;
-        case 'tick': osc.frequency.setValueAtTime(2000, now); break;
+        case 'click': osc.frequency.setValueAtTime(820, now); break;
+        case 'success': osc.frequency.setValueAtTime(1250, now); break;
+        case 'buzz': osc.frequency.setValueAtTime(180, now); break;
+        case 'start': osc.frequency.setValueAtTime(640, now); break;
+        case 'tick': osc.frequency.setValueAtTime(2100, now); break;
       }
-      
       osc.start(now);
-      osc.stop(now + (type === 'tick' ? 0.08 : 0.3));
+      osc.stop(now + (isTick ? 0.1 : 0.3));
     }
 
     // Warning ticker that beeps as a turn is about to end
@@ -235,6 +695,23 @@
     CATEGORY_BANK['Cooking Verbs'] = ['Bake','Blend','Boil','Broil','Caramelize','Chop','Dice','Ferment','Fry','Grate','Grill','Knead','Marinate','Mix','Poach','Roast','Saute','Sear','Season','Simmer','Slice','Steam','Stir','Toast','Whisk','Zest'];
     CATEGORY_BANK['Tools'] = ['Axe','Anvil','Brace','Chisel','Clamp','Crimper','Crowbar','Drill','File','Hammer','Hacksaw','Jigsaw','Knife','Level','Mallet','Measuring Tape','Pliers','Plane','Rasp','Router','Saw','Screwdriver','Sledgehammer','Soldering Iron','Square','Trowel','Vise','Wrench'];
 
+    // Five more interesting categories
+    CATEGORY_BANK['Programming Languages'] = [
+      'Ada','Assembly','Bash','C','C++','C#','Clojure','COBOL','D','Dart','Elixir','Erlang','F#','Fortran','Go','Groovy','Haskell','HTML','Java','JavaScript','Julia','Kotlin','Lisp','Lua','Matlab','Nim','Objective-C','OCaml','Perl','PHP','Python','Q#','R','Ruby','Rust','Scala','Shell','Swift','TypeScript','V','VB.NET','Visual Basic','Wolfram','XQuery','Zig'
+    ];
+    CATEGORY_BANK['Board Game Mechanics'] = [
+      'Area Control','Auction','Bag Building','Bluffing','Card Drafting','Cooperative','Deck Building','Dice Rolling','Engine Building','Hand Management','Hidden Movement','I Cut You Choose','Legacy','Modular Board','Negotiation','Pattern Building','Pick-up and Deliver','Press Your Luck','Route Building','Set Collection','Simultaneous Action','Tile Placement','Trick Taking','Variable Player Powers','Worker Placement'
+    ];
+    CATEGORY_BANK['Famous Painters'] = [
+      'Anselm Kiefer','Botticelli','Caravaggio','Da Vinci','Dali','El Greco','Frida Kahlo','Goya','Hokusai','Ingres','Jackson Pollock','Kandinsky','Leonardo','Monet','Matisse','Norman Rockwell','O\'Keeffe','Picasso','Rembrandt','Renoir','Seurat','Titian','Turner','Utrillo','Vermeer','Van Gogh','Warhol','Whistler','Xu Beihong','Yves Klein','Zao Wou-Ki'
+    ];
+    CATEGORY_BANK['Fictional Characters'] = [
+      'Aragorn','Batman','Catwoman','Dumbledore','Eowyn','Frodo','Gandalf','Hermione','Iron Man','Jon Snow','Katniss','Legolas','Mario','Neo','Optimus Prime','Pooh','Quasimodo','R2-D2','Sherlock','Spock','Thor','Tyrion','Ultron','Vader','Wolverine','Xena','Yoda','Zorro'
+    ];
+    CATEGORY_BANK['Famous Brands & Companies'] = [
+      'Apple','Adobe','Amazon','Boeing','BMW','Cisco','Canon','Dell','Disney','eBay','Exxon','Facebook','Ford','Google','GE','Huawei','IBM','Intel','Johnson & Johnson','Kellogg\'s','LG','LinkedIn','Microsoft','Nokia','Netflix','Oracle','Pepsi','Qualcomm','Reddit','Samsung','Shell','Sony','Tesla','Tencent','Uber','Unilever','Visa','Volkswagen','Walmart','Xerox','Yahoo','Zara'
+    ];
+
     // Categories: keep only those with at least 10-letter coverage in CATEGORY_BANK
     const categories = Object.keys(CATEGORY_BANK)
       .filter(cat => {
@@ -256,11 +733,12 @@
     function resetBgLayout() { bgLayout = null; bgKey = ''; }
     function computeBgLayout(wordsToDraw, cssW, cssH) {
       const sprites = [];
-      const count = 48;
+      const count = isMobile ? 14 : 48;
       for (let i = 0; i < count; i++) {
-        const size = Math.floor(24 + Math.random() * 64);
+        // Make mobile background words larger for better readability
+        const size = isMobile ? Math.floor(26 + Math.random() * 44) : Math.floor(24 + Math.random() * 64);
         const x = Math.random() * cssW;
-        const y = Math.random() * cssH * 0.8;
+        const y = Math.random() * cssH * (isMobile ? 0.6 : 0.8);
         const rot = (Math.random() - 0.5) * 0.35;
         const word = wordsToDraw[Math.floor(Math.random() * wordsToDraw.length)];
         sprites.push({ x, y, rot, size, word });
@@ -305,7 +783,9 @@
 
     function resizeCanvas() {
       const rect = canvas.parentElement.getBoundingClientRect();
-      DPR = Math.min(window.devicePixelRatio || 1, 3);
+      // iOS Safari can misreport DPR; clamp to 2 for performance and consistency on phones
+      const rawDpr = window.devicePixelRatio || 1;
+      DPR = Math.min(isMobile ? Math.max(1.5, rawDpr) : rawDpr, isMobile ? 2 : 3);
       // Set the internal pixel size for sharp rendering
       canvas.width = Math.max(1, Math.floor(rect.width * DPR));
       canvas.height = Math.max(1, Math.floor(rect.height * DPR));
@@ -315,16 +795,28 @@
       // Scale drawing operations from CSS px → device px
       ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
 
-      // Center the board in CSS pixels
+      // Center the board in CSS pixels (nudge down slightly on mobile to avoid header/instructions overlap)
       centerX = rect.width / 2;
-      centerY = rect.height / 2;
+      centerY = rect.height / 2 + (isMobile ? Math.floor(rect.height * 0.045) : 0);
 
-      // Size board relative to shortest screen side
+      // Size board relative to shortest screen side (tighter fit on mobile)
       const minSide = Math.min(rect.width, rect.height);
-      BOARD_RADIUS = Math.max(140, Math.floor(minSide * 0.33));
-      // Make letters larger relative to board radius
-      LETTER_RADIUS = Math.max(22, Math.floor(BOARD_RADIUS * 0.12));
-      CENTER_RADIUS = Math.max(40, Math.floor(BOARD_RADIUS * 0.24));
+      const scale = isMobile ? 0.44 : 0.33; // on phones push letters closer to edge to give more arc spacing
+      BOARD_RADIUS = Math.max(120, Math.floor(minSide * scale));
+      // Derive LETTER_RADIUS from arc spacing so letters do not overlap on mobile
+      const perLetterArc = (2 * Math.PI * BOARD_RADIUS) / gameState.letters.length; // circumference per letter
+      if (isMobile) {
+        // Increase mobile letter size by additional ~15% while keeping safe spacing
+        const baseFrac = 0.32; // fraction of per-letter arc used for radius baseline
+        let frac = baseFrac * 1.32 * 1.15; // previous mobile boost (1.32) plus +15%
+        frac = Math.min(frac, 0.45); // cap to avoid overlap (radius <= 45% of arc; diameter <= 90%)
+        const sideFrac = 0.055 * 1.32 * 1.15; // scale side clamp similarly
+        LETTER_RADIUS = Math.max(14, Math.min(Math.floor(perLetterArc * frac), Math.floor(minSide * sideFrac)));
+        CENTER_RADIUS = Math.max(48, Math.floor(BOARD_RADIUS * 0.26));
+      } else {
+        LETTER_RADIUS = Math.max(22, Math.floor(BOARD_RADIUS * 0.12));
+        CENTER_RADIUS = Math.max(40, Math.floor(BOARD_RADIUS * 0.24));
+      }
 
       console.log(`Canvas resized dpr=${DPR}: ${rect.width}x${rect.height} css, center: (${centerX}, ${centerY}), boardR=${BOARD_RADIUS}`);
       drawGame();
@@ -344,7 +836,8 @@
       
       const defaultSkyWords = ['Ideas','Creativity','Swift','Harmony','Quest','Logic','Music','Ocean','Galaxy','Breeze','Spark','Photon','Pixel','Orbit','Echo','Nova','Pulse','Dream','Motion','Focus'];
       ctx.save();
-      ctx.globalAlpha = 0.08;
+      // Make mobile background suggestions less faint
+      ctx.globalAlpha = isMobile ? 0.12 : 0.08;
       const wordsToDraw = (backgroundWords && backgroundWords.length) ? backgroundWords : defaultSkyWords;
       const key = `${wordsToDraw.length}:${wordsToDraw.slice(0,50).join('|')}`;
       if (!bgLayout || bgKey !== key || bgDims.w !== cssW || bgDims.h !== cssH) {
@@ -397,8 +890,8 @@
       ctx.font = `${Math.floor(CENTER_RADIUS * 0.6)}px Arial Black`;
       ctx.fillText(gameState.gameActive ? 'GO!' : 'START', centerX, centerY);
       
-      // Instructions (top-left) before START
-      if (!gameState.gameActive) {
+      // Instructions (top-left) before START (hidden on mobile)
+      if (!gameState.gameActive && !isMobile) {
         ctx.save();
         ctx.globalAlpha = 0.7;
         ctx.fillStyle = '#cbd5e1';
@@ -414,14 +907,16 @@
           '• The game ends when you claim all 20 letters or time expires.',
           '• Score = claimed letters / total available for the category (max 20).'
         ];
-        const left = 24, top = 24;
-        lines.forEach((t, i) => ctx.fillText(t, left, top + i * (base * 1.3)));
+        const left = 24, top = isMobile ? 6 : 24;
+        lines.forEach((t, i) => ctx.fillText(t, left, top + i * (base * 1.26)));
         ctx.restore();
       }
       
       // Draw letters
       gameState.letters.forEach((letter, index) => {
-        const angle = (index / gameState.letters.length) * Math.PI * 2 - Math.PI / 2;
+        // Uniform distribution (no global gap). Spacing comes from dynamic BOARD_RADIUS/LETTER_RADIUS above
+        const count = gameState.letters.length;
+        const angle = (index / count) * (Math.PI * 2) - Math.PI / 2;
         const x = centerX + Math.cos(angle) * BOARD_RADIUS;
         const y = centerY + Math.sin(angle) * BOARD_RADIUS;
         
@@ -431,18 +926,19 @@
         
         // Persist used letters in green; selected letter is brighter green
         ctx.fillStyle = isUsed ? '#16a34a' : isSelected ? '#10b981' : '#475569';
+        // Slightly reduce radius for mobile to reduce overlap, but keep tapable via hit-test using LETTER_RADIUS
         ctx.beginPath();
-        ctx.arc(x, y, LETTER_RADIUS, 0, Math.PI * 2);
+        ctx.arc(x, y, LETTER_RADIUS + (isMobile ? 0 : 0), 0, Math.PI * 2);
         ctx.fill();
         
         // Letter border
         ctx.strokeStyle = isSelected ? '#34d399' : (isUsed ? '#22c55e' : '#64748b');
-        ctx.lineWidth = 2;
+        ctx.lineWidth = isMobile ? 2.2 : 2;
         ctx.stroke();
         
         // Letter text (scaled with size and outlined for readability)
         ctx.fillStyle = '#e2e8f0';
-        ctx.font = `bold ${Math.floor(LETTER_RADIUS * 1.2)}px Arial`;
+        ctx.font = `bold ${Math.floor(LETTER_RADIUS * 1.08)}px Arial`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         // subtle outline
@@ -463,10 +959,12 @@
         ctx.fillStyle = isGameOver ? '#ef4444' : '#e2e8f0';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.font = `${Math.floor(Math.min(cssW, cssH) * 0.12)}px Arial Black`;
+        const titleFactor = isMobile ? 0.09 : 0.12; // smaller on mobile to prevent spill
+        ctx.font = `${Math.floor(Math.min(cssW, cssH) * titleFactor)}px Arial Black`;
         ctx.fillText(gameState.overlayMessage, centerX, centerY);
         if (gameState.overlayScoreText) {
-          ctx.font = `${Math.floor(Math.min(cssW, cssH) * 0.06)}px Segoe UI, Arial`;
+          const scoreFactor = isMobile ? 0.048 : 0.06;
+          ctx.font = `${Math.floor(Math.min(cssW, cssH) * scoreFactor)}px Segoe UI, Arial`;
           ctx.fillStyle = '#fbbf24';
           ctx.fillText(gameState.overlayScoreText, centerX, centerY + Math.min(cssW, cssH) * 0.08);
         }
@@ -476,28 +974,30 @@
         ctx.restore();
       }
 
-      // Top-Right: High Scores (faint) – always visible in background
-      ctx.save();
-      ctx.globalAlpha = 0.5;
-      ctx.fillStyle = '#cbd5e1';
-      ctx.textAlign = 'right';
-      ctx.textBaseline = 'top';
-      const baseTR = Math.floor(Math.min(cssW, cssH) * 0.02);
-      ctx.font = `${baseTR}px Segoe UI, Arial`;
-      const header = 'Top Players';
-      ctx.fillText(header, cssW - 24, 24);
-      if (window.__topScores && Array.isArray(window.__topScores.top5)) {
-        window.__topScores.top5.forEach((row, i) => {
-          const pct = Math.round((row.avg || 0) * 100);
-          const used = Math.round(row.used || 0);
-          const total = Math.round(row.total || 0);
-          const line = `${i+1}. ${row.player || 'Anonymous'} — ${pct}% (${used}/${total})`;
-          ctx.fillText(line, cssW - 24, 24 + (i + 1) * (baseTR * 1.3));
-        });
-      } else {
-        ctx.fillText('Loading...', cssW - 24, 24 + (baseTR * 1.3));
+      // Top-Right: High Scores (skip on mobile for clean layout)
+      if (!isMobile) {
+        ctx.save();
+        ctx.globalAlpha = 0.5;
+        ctx.fillStyle = '#cbd5e1';
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'top';
+        const baseTR = Math.floor(Math.min(cssW, cssH) * 0.02);
+        ctx.font = `${baseTR}px Segoe UI, Arial`;
+        const header = 'Top Players';
+        ctx.fillText(header, cssW - 24, 24);
+        if (window.__topScores && Array.isArray(window.__topScores.top5)) {
+          window.__topScores.top5.forEach((row, i) => {
+            const pct = Math.round((row.avg || 0) * 100);
+            const used = Math.round(row.used || 0);
+            const total = Math.round(row.total || 0);
+            const line = `${i+1}. ${row.player || 'Anonymous'} — ${pct}% (${used}/${total})`;
+            ctx.fillText(line, cssW - 24, 24 + (i + 1) * (baseTR * 1.3));
+          });
+        } else {
+          ctx.fillText('Loading...', cssW - 24, 24 + (baseTR * 1.3));
+        }
+        ctx.restore();
       }
-      ctx.restore();
     }
 
     function getLetterAt(mouseX, mouseY) {
@@ -511,53 +1011,39 @@
       });
     }
 
-    // Event handlers
-    canvas.addEventListener('click', (e) => {
-      const rect = canvas.getBoundingClientRect();
-      const mouseX = e.clientX - rect.left;
-      const mouseY = e.clientY - rect.top;
+    function handlePointer(px, py) {
       // If not active, treat center circle as Start button
-      const distToCenter = Math.hypot(mouseX - centerX, mouseY - centerY);
+      const distToCenter = Math.hypot(px - centerX, py - centerY);
       if (!gameState.gameActive && distToCenter <= CENTER_RADIUS) {
         startRound();
         return;
       }
-
-      if (!gameState.gameActive) return; // ignore letter clicks until started
-
-      const clickedLetter = getLetterAt(mouseX, mouseY);
+      if (!gameState.gameActive) return;
+      const clickedLetter = getLetterAt(px, py);
       if (!clickedLetter) return;
-
-      // Only a previously unused letter counts for the turn
       if (gameState.usedLetters.has(clickedLetter)) {
         showLog(`"${clickedLetter}" already used`, 'info');
         drawGame();
         return;
       }
-
-      // Register the press for this turn and mark letter used
       gameState.turnHasPressed = true;
       gameState.usedLetters.add(clickedLetter);
       gameState.selectedLetter = null;
       playSound('click');
       updateBackgroundForLetter(clickedLetter);
       drawGame();
-
-      // Win condition: all letters used
       if (gameState.usedLetters.size === gameState.letters.length) {
         showLog('🎉 Perfect! All letters used!', 'victory');
         gameState.gameActive = false;
-          const usedRaw = gameState.usedLetters.size;
-          const cat = gameState.currentCategory;
-          const distinct = new Set((CATEGORY_BANK[cat]||[]).map(w => w[0]?.toUpperCase())).size;
-          const total = Math.min(20, distinct || gameState.letters.length);
-          const used = Math.min(usedRaw, total);
+        const usedRaw = gameState.usedLetters.size;
+        const cat = gameState.currentCategory;
+        const distinct = new Set((CATEGORY_BANK[cat]||[]).map(w => w[0]?.toUpperCase())).size;
+        const total = Math.min(20, distinct || gameState.letters.length);
+        const used = Math.min(usedRaw, total);
         gameState.overlayMessage = 'Perfect! All letters used!';
         gameState.overlayScoreText = `Score: ${used}/${total} (${Math.round((used/total)*100)}%)`;
-        // No unused letters in this case
         backgroundWords = [];
         drawGame();
-        // Submit score on perfect round
         (async ()=>{
           try{
             let player = localStorage.getItem('lexiorbit_player');
@@ -567,23 +1053,27 @@
             }
             const resp = await fetch('/api/scores', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ player, used, total })});
             const data = await resp.json().catch(()=>null);
-            console.log('Score submission response:', data);
-            if (data && data.top5) { 
-              window.__topScores = { top5: data.top5 }; 
-              console.log('Updated top scores:', window.__topScores);
-              drawGame(); 
-            } else {
-              console.log('Fallback: calling fetchTopScores');
-              if (typeof fetchTopScores === 'function') fetchTopScores();
-            }
+            if (data && data.top5) { window.__topScores = { top5: data.top5 }; drawGame(); }
+            else { if (typeof fetchTopScores === 'function') fetchTopScores(); }
           }catch(e){}
         })();
         return;
       }
-
-      // Immediately start the next 10s turn
       startNextTurn();
+    }
+
+    // Event handlers
+    canvas.addEventListener('click', (e) => {
+      const rect = canvas.getBoundingClientRect();
+      handlePointer(e.clientX - rect.left, e.clientY - rect.top);
     });
+    canvas.addEventListener('touchstart', (e) => {
+      if (!e.touches || e.touches.length === 0) return;
+      e.preventDefault();
+      const t = e.touches[0];
+      const rect = canvas.getBoundingClientRect();
+      handlePointer(t.clientX - rect.left, t.clientY - rect.top);
+    }, { passive: false });
 
     // Word input removed
 
@@ -596,6 +1086,9 @@
       playSound('click');
       shuffleCategory();
     });
+    document.getElementById('voiceBtn').addEventListener('click', () => {
+      if (voiceActive) { stopVoice(); } else { startVoice(); }
+    });
 
     // submitWord removed
 
@@ -603,7 +1096,7 @@
       gameState.usedLetters.clear();
       gameState.selectedLetter = null;
       gameState.round++;
-      gameState.timeLeft = 10.0;
+      gameState.timeLeft = 12.0;
       gameState.gameActive = false;
       gameState.turnHasPressed = false;
       gameState.overlayMessage = '';
@@ -617,7 +1110,8 @@
 
     function startRound() {
       playSound('start');
-      gameState.timeLeft = 10.0;
+      try { if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume(); } catch {}
+      gameState.timeLeft = 12.0;
       gameState.gameActive = true;
       gameState.turnHasPressed = false;
       gameState.overlayMessage = '';
@@ -626,12 +1120,13 @@
       document.getElementById('timer').textContent = gameState.timeLeft.toFixed(1);
       stopWarningTicker();
       drawGame();
+      if (voiceActive && recognition) { try { recognition.start(); } catch {} }
     }
 
     function startNextTurn() {
       // Reset window for the next press
       gameState.turnHasPressed = false;
-      gameState.timeLeft = 10.0;
+      gameState.timeLeft = 12.0;
       document.getElementById('timer').textContent = gameState.timeLeft.toFixed(1);
       stopWarningTicker();
       drawGame();
@@ -664,15 +1159,15 @@
         gameState.timeLeft = Math.max(0, gameState.timeLeft - 0.1);
         document.getElementById('timer').textContent = gameState.timeLeft.toFixed(1);
       }
-      // Start/stop warning beeps based on remaining time in this turn
-      if (gameState.timeLeft <= 3.0 && gameState.gameActive) {
+      // Start/stop warning beeps based on remaining time in this turn (disabled in voice mode)
+      if (gameState.timeLeft <= 3.0 && gameState.gameActive && !voiceActive) {
         startWarningTicker();
       } else {
         stopWarningTicker();
       }
       if (gameState.timeLeft === 0) {
         if (!gameState.turnHasPressed) {
-          // No letter pressed in this 10s turn → game over
+          // No letter pressed in this 12s turn → game over
           playSound('buzz');
           showLog('⏰ Time up! Game over.', 'error');
           gameState.gameActive = false;
