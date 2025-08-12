@@ -36,6 +36,14 @@
       .amt { width:72px; }
       #table { height: min(68vh, 640px); }
     }
+    @media (max-width:430px) {
+      #table { height: min(70svh, 640px); }
+      #glLayer { inset: 8px 8px 72px 8px; }
+      #hud { display:grid; grid-template-columns: 1fr 1fr; gap:8px; justify-content:stretch; }
+      #hud .panel { grid-column: 1 / -1; }
+      .btn { min-width:68px; padding:9px 12px; }
+      .amt { width:64px; }
+    }
   </style>
 </head>
 <body>
@@ -71,10 +79,44 @@
     const yrEl = document.getElementById('yr'); if(yrEl) yrEl.textContent = new Date().getFullYear();
     // Canvas setup
     const canvas = document.getElementById('table');
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext('2d', { alpha:false, desynchronized:true });
     // WebGL (PixiJS) stage for cards animation
     const glContainer = document.getElementById('glLayer');
     let pixiApp = null;
+    const cardTextureCache = new Map(); // key: `${faceUp?1:0}_${r}_${s}_${scale}` or `back_${scale}`
+    const spritePool = [];
+    function getPooledSprite(texture){
+      const s = spritePool.pop();
+      if(s){ s.texture = texture; s.visible = true; s.alpha = 1; s.scale.set(1,1); return s; }
+      const sp = new PIXI.Sprite(texture); sp.anchor.set(0.5,0.5); return sp;
+    }
+    function releaseSprite(sprite){ if(!sprite) return; sprite.visible=false; try{ sprite.parent && sprite.parent.removeChild(sprite); }catch{} spritePool.push(sprite); }
+    function getCardTexture(card, faceUp, scale){
+      if(!pixiApp) return null;
+      const sc = Math.round((scale||1)*100)/100;
+      if(!faceUp){
+        const k = `back_${sc}`; if(cardTextureCache.has(k)) return cardTextureCache.get(k);
+        const w=60*sc, h=86*sc, r=9*sc;
+        const g = new PIXI.Graphics();
+        g.beginFill(0xf8fafc); g.lineStyle(2, 0xcbd5e1, 1); g.drawRoundedRect(-w/2, -h/2, w, h, r); g.endFill();
+        const back = new PIXI.Graphics(); back.beginFill(0x1d4ed8); back.drawRoundedRect(-w/2,-h/2,w,h,r); back.endFill();
+        const c = new PIXI.Container(); c.addChild(back); const tex = pixiApp.renderer.generateTexture(c, { resolution: 1 }); cardTextureCache.set(k, tex); return tex;
+      } else {
+        const k = `f_${card.r}_${card.s}_${sc}`; if(cardTextureCache.has(k)) return cardTextureCache.get(k);
+        const w=60*sc, h=86*sc, r=9*sc;
+        const suitColors=[0x111827,0xef4444,0xef4444,0x065f46];
+        const gfx = new PIXI.Graphics();
+        gfx.beginFill(0xf8fafc); gfx.lineStyle(2, 0xcbd5e1, 1); gfx.drawRoundedRect(-w/2, -h/2, w, h, r); gfx.endFill();
+        const rankText = new PIXI.Text(rankStr(card.r), {fontFamily:'Arial Black', fontSize:14*sc, fill:suitColors[card.s], resolution:1});
+        rankText.anchor.set(0,0); rankText.position.set(-w/2+8,-h/2+6);
+        const suitText = new PIXI.Text(SUIT_EMO[card.s], {fontFamily:'Segoe UI Emoji', fontSize:14*sc, fill:suitColors[card.s], resolution:1});
+        suitText.anchor.set(0,0); suitText.position.set(-w/2+8,-h/2+24);
+        const centerSuit = new PIXI.Text(SUIT_EMO[card.s], {fontFamily:'Segoe UI Emoji', fontSize:30*sc, fill:suitColors[card.s], resolution:1});
+        centerSuit.anchor.set(0.5,0.5); centerSuit.position.set(0,8);
+        const cont = new PIXI.Container(); cont.addChild(gfx, rankText, suitText, centerSuit);
+        const tex = pixiApp.renderer.generateTexture(cont, { resolution: 1 }); cardTextureCache.set(k, tex); return tex;
+      }
+    }
     let glCards = []; // sprites for animated cards
     // Slightly lower DPR cap for smoother animations on mid devices
     let DPR = Math.min(1.25, window.devicePixelRatio || 1);
@@ -95,10 +137,23 @@
       const h = Math.floor(r.height);
       try{
         if(window.PIXI && PIXI.Application){
+          const small = isSmallScreen();
           if(!pixiApp){
-            pixiApp = new PIXI.Application({ resizeTo: glContainer, antialias:true, backgroundAlpha:0, powerPreference:'high-performance' });
+            pixiApp = new PIXI.Application({
+              resizeTo: glContainer,
+              antialias: !small,
+              resolution: small ? 1 : Math.min(1.5, window.devicePixelRatio || 1),
+              backgroundAlpha: 0,
+              powerPreference: small ? 'low-power' : 'high-performance'
+            });
             glContainer.innerHTML=''; glContainer.appendChild(pixiApp.view);
+            pixiApp.renderer.roundPixels = true;
           } else {
+            // Update renderer resolution on mobile for smoother performance
+            const targetRes = small ? 1 : Math.min(1.5, window.devicePixelRatio || 1);
+            if(pixiApp.renderer.resolution !== targetRes){
+              pixiApp.renderer.resolution = targetRes;
+            }
             pixiApp.renderer.resize(w, h);
           }
         }
@@ -108,6 +163,12 @@
         glContainer.innerHTML='';
       }
       draw();
+    }
+    function isSmallScreen(){
+      try{
+        const w = Math.min(window.innerWidth||0, document.documentElement.clientWidth||1);
+        return w > 0 && w <= 430;
+      }catch{ return false; }
     }
     window.addEventListener('resize', resize);
     // Player handle
@@ -126,9 +187,30 @@
     // Background portrait image (royalty‑free). Replace URL to customize.
     const TABLE_BG_URL = 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=2400&q=80';
     const TABLE_BG_OPACITY = 0.18; // 0..1, how visible the photo sits behind the felt
+    // Secure randomness helpers
+    function secureRandomIntInclusive(max){
+      max = Math.floor(max);
+      if(max <= 0) return 0;
+      const range = max + 1;
+      if(window.crypto && window.crypto.getRandomValues){
+        const maxUint = 0x100000000; // 2^32
+        const bucket = Math.floor(maxUint / range);
+        const limit = bucket * range - 1;
+        const arr = new Uint32Array(1);
+        while(true){
+          window.crypto.getRandomValues(arr);
+          const v = arr[0];
+          if(v <= limit){ return v % range; }
+        }
+      }
+      // Fallback (non-crypto)
+      return (Math.random() * range) | 0;
+    }
+    function secureRandomBool(){ return secureRandomIntInclusive(1) === 1; }
+
     const state = {
       handId: 0,
-      dealer: Math.random() < 0.5 ? 0 : 1, // 0 human, 1 ai
+      dealer: secureRandomBool() ? 0 : 1, // 0 human, 1 ai
       players: [
         { name: HUMAN_NAME, stack: START_STACK, hole: [], folded:false, isAI:false },
         { name: AI_NAME,    stack: START_STACK, hole: [], folded:false, isAI:true }
@@ -143,23 +225,21 @@
       actionOpen: true,
       message: '',
       revealed: { human:0, ai:0, board:0 },
-      moving: null, // {from:{x,y}, to:{x,y}, start, dur, card, faceUp}
-      animating: false,
+        moving: null, // {from:{x,y}, to:{x,y}, start, dur, card, faceUp}
+        animating: false,
+        glAnimating: false,
       acted: [false, false]
     };
 
     // Deck
     const SUITS = ['♠','♥','♦','♣'];
     function newDeck(){ const d=[]; for(let s=0;s<4;s++){ for(let r=2;r<=14;r++){ d.push({r,s}); } } return d; }
-    // Fisher–Yates with crypto fallback for better randomness
+    // Fisher–Yates with secure randomness (rejection sampling to avoid modulo bias)
     function shuffle(a){
-      const rand = (max)=>{
-        if(window.crypto && window.crypto.getRandomValues){
-          const arr = new Uint32Array(1); window.crypto.getRandomValues(arr); return arr[0] % (max+1);
-        }
-        return (Math.random()*(max+1))|0;
-      };
-      for(let i=a.length-1;i>0;i--){ const j=rand(i); [a[i],a[j]]=[a[j],a[i]]; }
+      for(let i=a.length-1;i>0;i--){
+        const j = secureRandomIntInclusive(i);
+        const tmp = a[i]; a[i] = a[j]; a[j] = tmp;
+      }
     }
     function cardStr(c){ const ranks='--23456789TJQKA'; return ranks[c.r] + SUITS[c.s]; }
 
@@ -265,12 +345,15 @@
       bgGrad.addColorStop(0,'#064e3b'); bgGrad.addColorStop(1,'#052e2a');
       bctx.fillStyle=bgGrad; bctx.fillRect(0,0,w,h);
       // Table shape
-      bctx.save(); bctx.translate(w/2, h/2); const R=Math.min(w,h)*0.42; const r=R*0.35;
+      bctx.save();
+      // Keep desktop placement but slightly increase vertical radius on small screens to fully frame board
+      const yOff = 0;
+      bctx.translate(w/2, h/2 + yOff);
+      const R=Math.min(w,h) * 0.42;
+      const r=R * (isSmallScreen()? 0.40 : 0.35);
       bctx.fillStyle='#065f46'; bctx.strokeStyle= getGradient('#10b981','#34d399'); bctx.lineWidth=8*DPR;
       roundTablePath.call({ctx:bctx}, R, r);
-      // Emulate roundTablePath using bctx
-      function path(Rr, rr){ bctx.beginPath(); bctx.moveTo(-Rr, -rr); bctx.lineTo(Rr, -rr); bctx.arc(Rr,0,rr,-Math.PI/2,Math.PI/2); bctx.lineTo(-Rr, r); bctx.arc(-Rr,0,rr,Math.PI/2,-Math.PI/2); bctx.closePath(); }
-      // Draw using normal helper
+      function path(Rr, rr){ bctx.beginPath(); bctx.moveTo(-Rr, -rr); bctx.lineTo(Rr, -rr); bctx.arc(Rr,0,rr,-Math.PI/2,Math.PI/2); bctx.lineTo(-Rr, rr); bctx.arc(-Rr,0,rr,Math.PI/2,-Math.PI/2); bctx.closePath(); }
       bctx.beginPath(); bctx.moveTo(-R, -r); bctx.lineTo(R, -r); bctx.arc(R,0,r,-Math.PI/2,Math.PI/2); bctx.lineTo(-R, r); bctx.arc(-R,0,r,Math.PI/2,-Math.PI/2); bctx.closePath();
       bctx.fill(); bctx.stroke();
       // Static soft vignette
@@ -287,35 +370,114 @@
     function getGradient(a,b){ const g=ctx.createLinearGradient(0,0,0,canvas.height); g.addColorStop(0,a); g.addColorStop(1,b); return g; }
     function roundTablePath(R,r){ ctx.beginPath(); ctx.moveTo(-R, -r); ctx.lineTo(R, -r); ctx.arc(R,0,r,-Math.PI/2,Math.PI/2); ctx.lineTo(-R, r); ctx.arc(-R,0,r,Math.PI/2,-Math.PI/2); ctx.closePath(); }
     function drawChipStack(x,y,amount){ ctx.save(); ctx.translate(x,y); const chips=Math.min(8, Math.max(1, Math.round(amount/5))); for(let i=0;i<chips;i++){ ctx.fillStyle='rgba(236,72,153,'+(0.4+0.05*i)+')'; ctx.beginPath(); ctx.ellipse(0, -i*3*DPR, 16*DPR, 6*DPR, 0,0,Math.PI*2); ctx.fill(); } ctx.fillStyle='#fbbf24'; ctx.font = `${12*DPR}px Segoe UI`; ctx.textAlign='center'; ctx.textBaseline='bottom'; ctx.fillText(amount.toString(), 0, -chips*3*DPR-2*DPR); ctx.restore(); }
+    // Detailed chip visuals for total stacks (left of cards)
+    const CHIP_DENOMS = [500, 100, 25, 5, 1];
+    const CHIP_COLORS = { 1:'#e5e7eb', 5:'#ef4444', 25:'#10b981', 100:'#111827', 500:'#a78bfa' };
+    function buildChipColumns(amount){
+      const cols=[]; let remain = Math.max(0, Math.floor(amount));
+      for(const v of CHIP_DENOMS){
+        let cnt = Math.floor(remain / v); remain -= cnt * v;
+        while(cnt>0){ const take = Math.min(10, cnt); cols.push({ value:v, color:CHIP_COLORS[v]||'#cbd5e1', count:take }); cnt -= take; }
+      }
+      if(remain>0) cols.push({ value:1, color:CHIP_COLORS[1], count:remain });
+      return cols;
+    }
+    function drawChipDisc(px, py, color){
+      ctx.save();
+      // base with subtle 3D shading
+      const grad = ctx.createRadialGradient(px - 6*DPR, py - 4*DPR, 2*DPR, px, py, 16*DPR);
+      grad.addColorStop(0, '#ffffff18');
+      grad.addColorStop(1, '#00000025');
+      ctx.beginPath(); ctx.ellipse(px, py, 16*DPR, 6.5*DPR, 0, 0, Math.PI*2);
+      ctx.fillStyle = color; ctx.fill();
+      ctx.strokeStyle='#0b0f18'; ctx.lineWidth=1.2*DPR; ctx.stroke();
+      // inner ring
+      ctx.beginPath(); ctx.ellipse(px, py, 12*DPR, 4.8*DPR, 0, 0, Math.PI*2);
+      ctx.strokeStyle='rgba(255,255,255,0.45)'; ctx.lineWidth=1*DPR; ctx.stroke();
+      // edge notches
+      ctx.save(); ctx.globalAlpha=0.6; ctx.strokeStyle='rgba(255,255,255,0.6)'; ctx.lineWidth=1*DPR;
+      for(let k=0;k<8;k++){
+        const ang = (Math.PI*2/8)*k; const ex = px + Math.cos(ang)*14*DPR; const ey = py + Math.sin(ang)*5.2*DPR;
+        ctx.beginPath(); ctx.moveTo(ex, ey); ctx.lineTo(ex*0.995 + px*0.005, ey*0.995 + py*0.005); ctx.stroke();
+      }
+      ctx.restore();
+      // glossy highlight
+      ctx.beginPath(); ctx.ellipse(px - 5*DPR, py - 3.5*DPR, 6*DPR, 2.2*DPR, -0.3, 0, Math.PI*2); ctx.fillStyle='rgba(255,255,255,0.18)'; ctx.fill();
+      // ambient shadow
+      ctx.beginPath(); ctx.ellipse(px + 2*DPR, py + 3.3*DPR, 14*DPR, 2*DPR, 0, 0, Math.PI*2); ctx.fillStyle='rgba(0,0,0,0.18)'; ctx.fill();
+      ctx.restore();
+    }
+    function drawChipColumn(px, py, color, count){
+      const gap = 3.2*DPR; for(let i=0;i<count;i++){ drawChipDisc(px, py - i*gap, color); }
+    }
+function drawChipBank(anchorX, anchorY, amount){
+      const cols = buildChipColumns(amount);
+      const step = (isSmallScreen()? 18:24)*DPR; // horizontal spacing
+      const totalWidth = Math.max(1, cols.length) * step;
+      let x = anchorX; // start near cards and move leftwards
+      for(let i=0;i<cols.length;i++){
+        const c = cols[i]; drawChipColumn(x, anchorY+18*DPR, c.color, c.count); x -= step;
+      }
+      // label centered above the chip bank
+      const centerX = anchorX - ((cols.length-1)*step)/2;
+      ctx.save(); ctx.fillStyle='#e2e8f0'; ctx.textAlign='center'; ctx.textBaseline='bottom'; ctx.font = `${18*DPR}px Arial Black`; ctx.fillText(String(amount), centerX, anchorY-8*DPR); ctx.restore();
+    }
+
+    // Large bet indicator to the right of hole cards
+function drawBetIndicator(anchorX, anchorY, amount){
+      if(!amount || amount<=0) return;
+      let x = anchorX + (isSmallScreen()? 104:190)*DPR;
+      const y = anchorY;
+      // clamp to screen
+      const maxX = canvas.width - 16*DPR;
+      if(x > maxX) x = maxX;
+      // draw a short, prominent stack
+      const sample = Math.min(6, Math.max(3, Math.round(Math.log10(amount+1))+2));
+      const palette = [CHIP_COLORS[25], CHIP_COLORS[100], CHIP_COLORS[5], CHIP_COLORS[500]].filter(Boolean);
+      for(let i=0;i<sample;i++){
+        const col = palette[i % palette.length] || '#cbd5e1';
+        drawChipDisc(x + (i%2)*4*DPR, y - i*4*DPR, col);
+      }
+      // big amount text
+      ctx.save(); ctx.fillStyle='#f8fafc'; ctx.textAlign='left'; ctx.textBaseline='middle'; ctx.font = `${(isSmallScreen()?18:22)*DPR}px Arial Black`;
+      ctx.fillText(String(amount), Math.min(x + 26*DPR, canvas.width - 4*DPR), y - 8*DPR);
+      ctx.restore();
+    }
     function drawDealerButton(x,y){ ctx.save(); ctx.translate(x,y); ctx.fillStyle='#e5e7eb'; ctx.strokeStyle='#111827'; ctx.lineWidth=2*DPR; ctx.beginPath(); ctx.arc(0,0, 10*DPR, 0, Math.PI*2); ctx.fill(); ctx.stroke(); ctx.fillStyle='#111827'; ctx.font = `${10*DPR}px Arial Black`; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('D',0,1); ctx.restore(); }
-    function suitColor(s){ return (s===1||s===2)?'#ef4444':'#111827'; }
+    // Suit colors: hearts/diamonds red, spades black, clubs dark green
+    function suitColor(s){
+      if(s===1 || s===2) return '#ef4444'; // hearts, diamonds
+      if(s===3) return '#065f46'; // clubs
+      return '#111827'; // spades
+    }
     function rankStr(r){
       if(r===10) return '10';
       return '--23456789TJQKA'[r];
     }
     const SUIT_EMO = ['♠','♥','♦','♣'];
     function drawCard(x,y,card,faceUp=true){
-      const w=81*DPR, h=116*DPR, r=12*DPR; ctx.save(); ctx.translate(x,y); ctx.shadowColor='rgba(0,0,0,0.45)'; ctx.shadowBlur=11*DPR; roundedRect(-w/2,-h/2,w,h,r);
+      const sc = isSmallScreen()? 0.9 : 1;
+      const w=81*DPR*sc, h=116*DPR*sc, r=12*DPR*sc; ctx.save(); ctx.translate(x,y); ctx.shadowColor='rgba(0,0,0,0.4)'; ctx.shadowBlur=(isSmallScreen()? 7:11)*DPR*sc; roundedRect(-w/2,-h/2,w,h,r);
       if(faceUp){
         // classic card face
-        ctx.fillStyle='#ffffff'; ctx.strokeStyle='#b6c2cf'; ctx.lineWidth=2.2*DPR; ctx.fill(); ctx.stroke();
+        ctx.fillStyle='#ffffff'; ctx.strokeStyle='#b6c2cf'; ctx.lineWidth=2.2*DPR*sc; ctx.fill(); ctx.stroke();
         // subtle inner border
-        roundedRect(-w/2+4*DPR,-h/2+4*DPR,w-8*DPR,h-8*DPR,r*0.8); ctx.strokeStyle='#e2e8f0'; ctx.lineWidth=1.2*DPR; ctx.stroke();
+        roundedRect(-w/2+4*DPR*sc,-h/2+4*DPR*sc,w-8*DPR*sc,h-8*DPR*sc,r*0.8); ctx.strokeStyle='#e2e8f0'; ctx.lineWidth=1.2*DPR*sc; ctx.stroke();
         // corners and center pip
         ctx.fillStyle=suitColor(card.s); ctx.textAlign='left'; ctx.textBaseline='top';
-        ctx.font = `${22*DPR}px Arial Black`; ctx.fillText(rankStr(card.r), -w/2+9*DPR, -h/2+7*DPR);
-        ctx.font = `${22*DPR}px Segoe UI Emoji`; ctx.fillText(SUIT_EMO[card.s], -w/2+9*DPR, -h/2+32*DPR);
-        ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.font = `${49*DPR}px Segoe UI Emoji`; ctx.fillText(SUIT_EMO[card.s], 0, 10*DPR);
+        ctx.font = `${22*DPR*sc}px Arial Black`; ctx.fillText(rankStr(card.r), -w/2+9*DPR*sc, -h/2+7*DPR*sc);
+        ctx.font = `${22*DPR*sc}px Segoe UI Emoji`; ctx.fillText(SUIT_EMO[card.s], -w/2+9*DPR*sc, -h/2+32*DPR*sc);
+        ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.font = `${49*DPR*sc}px Segoe UI Emoji`; ctx.fillText(SUIT_EMO[card.s], 0, 10*DPR*sc);
       } else {
         // classic blue back with bordered lattice pattern
-        ctx.fillStyle='#114b8b'; ctx.strokeStyle='#0b3561'; ctx.lineWidth=2.4*DPR; ctx.fill(); ctx.stroke();
+        ctx.fillStyle='#114b8b'; ctx.strokeStyle='#0b3561'; ctx.lineWidth=2.4*DPR*sc; ctx.fill(); ctx.stroke();
         // bordered lattice
         ctx.save();
-        roundedRect(-w/2+8*DPR,-h/2+8*DPR,w-16*DPR,h-16*DPR,r*0.5); ctx.strokeStyle='#e5e7eb'; ctx.lineWidth=1.6*DPR; ctx.stroke();
-        ctx.beginPath(); roundedRect(-w/2+10*DPR,-h/2+10*DPR,w-20*DPR,h-20*DPR,r*0.4); ctx.clip();
-        ctx.globalAlpha=0.35; ctx.strokeStyle='#cfe3ff'; ctx.lineWidth=1*DPR;
-        for(let y=-h/2; y<h/2; y+=9*DPR){ ctx.beginPath(); ctx.moveTo(-w/2,y); ctx.lineTo(w/2,y+ w); ctx.stroke(); }
-        for(let y=-h/2; y<h/2; y+=9*DPR){ ctx.beginPath(); ctx.moveTo(w/2,y); ctx.lineTo(-w/2,y+ w); ctx.stroke(); }
+        roundedRect(-w/2+8*DPR*sc,-h/2+8*DPR*sc,w-16*DPR*sc,h-16*DPR*sc,r*0.5); ctx.strokeStyle='#e5e7eb'; ctx.lineWidth=1.6*DPR*sc; ctx.stroke();
+        ctx.beginPath(); roundedRect(-w/2+10*DPR*sc,-h/2+10*DPR*sc,w-20*DPR*sc,h-20*DPR*sc,r*0.4); ctx.clip();
+        ctx.globalAlpha=0.35; ctx.strokeStyle='#cfe3ff'; ctx.lineWidth=1*DPR*sc;
+        for(let y=-h/2; y<h/2; y+=9*DPR*sc){ ctx.beginPath(); ctx.moveTo(-w/2,y); ctx.lineTo(w/2,y+ w); ctx.stroke(); }
+        for(let y=-h/2; y<h/2; y+=9*DPR*sc){ ctx.beginPath(); ctx.moveTo(w/2,y); ctx.lineTo(-w/2,y+ w); ctx.stroke(); }
         ctx.restore(); ctx.globalAlpha=1;
       }
       ctx.restore();
@@ -323,49 +485,34 @@
     // WebGL fly card using PixiJS for ultra smooth animation
     function flyCard(from, to, card, faceUp, durMs, onDone){
       try{
-        const w=60, h=86, r=9;
-        const gfx = new PIXI.Graphics();
-        gfx.beginFill(0xf8fafc); gfx.lineStyle(2, 0xcbd5e1, 1); gfx.drawRoundedRect(-w/2, -h/2, w, h, r); gfx.endFill();
-        // suit & rank
-        if(faceUp){
-          const suitColors=[0x111827,0xef4444,0xef4444,0x111827];
-          const rankText = new PIXI.Text(rankStr(card.r), {fontFamily:'Arial Black', fontSize:14, fill:suitColors[card.s]});
-          rankText.anchor.set(0,0); rankText.position.set(-w/2+8,-h/2+6);
-          const suitText = new PIXI.Text(SUIT_EMO[card.s], {fontFamily:'Segoe UI Emoji', fontSize:14, fill:suitColors[card.s]});
-          suitText.anchor.set(0,0); suitText.position.set(-w/2+8,-h/2+24);
-          const centerSuit = new PIXI.Text(SUIT_EMO[card.s], {fontFamily:'Segoe UI Emoji', fontSize:30, fill:suitColors[card.s]});
-          centerSuit.anchor.set(0.5,0.5); centerSuit.position.set(0,8);
-          gfx.addChild(rankText); gfx.addChild(suitText); gfx.addChild(centerSuit);
-        } else {
-          const g = new PIXI.Graphics(); g.beginFill(0x1d4ed8); g.drawRoundedRect(-w/2,-h/2,w,h,r); g.endFill();
-          gfx.addChild(g);
-        }
-        const sprite = new PIXI.Container(); sprite.addChild(gfx);
+        const sc = isSmallScreen()? 0.9 : 1;
+        const texture = getCardTexture(card, !!faceUp, sc) || null;
+        const sprite = texture ? getPooledSprite(texture) : new PIXI.Container();
         // map logical coords to pixi coords
         const rect = canvas.getBoundingClientRect();
         const px = (valX,valY)=> [valX / DPR, valY / DPR]; // canvas coords -> CSS pixels
         const [sx,sy] = px(from.x, from.y);
         sprite.position.set(sx, sy);
         pixiApp.stage.addChild(sprite);
-        const start=performance.now(), D=durMs;
+        const start=performance.now(), D=Math.max(100, durMs);
         function tick(){
           const t=Math.min(1, (performance.now()-start)/D);
-          const ease = t*t*(3-2*t);
+          const ease = t<0.5 ? 2*t*t : -1+(4-2*t)*t; // smoother easeInOut
           const [nx,ny] = px(from.x + (to.x-from.x)*ease, from.y + (to.y-from.y)*ease);
           sprite.position.set(nx, ny);
           if(t<1){ requestAnimationFrame(tick); }
-          else { pixiApp.stage.removeChild(sprite); if(onDone) onDone(); }
+          else { releaseSprite(sprite); if(onDone) onDone(); }
         }
         requestAnimationFrame(tick);
       }catch(e){
         // Fallback to canvas-based moving if WebGL fails
-        state.moving = { from, to, start: performance.now(), dur: durMs, card, faceUp, onDone };
+        state.moving = { from, to, start: performance.now(), dur: Math.max(100, durMs), card, faceUp, onDone };
         requestAnimationFrame(draw);
       }
     }
     function roundedRect(x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
-    function positions(){
-      const w=canvas.width, h=canvas.height; const cx=w/2, cy=h/2; const boardY = cy - 14*DPR; const gap = 96*DPR;
+function positions(){
+      const w=canvas.width, h=canvas.height; const cx=w/2, cy=h/2; const boardY = cy + (isSmallScreen()? 10:-14)*DPR; const gap = (isSmallScreen()? 74 : 96)*DPR;
       return {
         board: [
           [cx-2*gap, boardY],
@@ -374,24 +521,25 @@
           [cx+gap,   boardY],
           [cx+2*gap, boardY]
         ],
-        pot: [cx, cy - 56*DPR],
-        human: { name:[cx, h-28*DPR], cards:[cx-45*DPR, h-130*DPR, cx+45*DPR, h-130*DPR], chips:[cx+150*DPR, h-135*DPR] },
-        ai:    { name:[cx, 22*DPR],   cards:[cx-45*DPR, 130*DPR,    cx+45*DPR, 130*DPR],    chips:[cx+180*DPR, 60*DPR] }
+        pot: [cx, cy - (isSmallScreen()? 10:56)*DPR],
+        human: { name:[cx, h-(isSmallScreen()? 16:28)*DPR], cards:[cx-45*DPR, h-(isSmallScreen()? 120:130)*DPR, cx+45*DPR, h-(isSmallScreen()? 120:130)*DPR], chips:[cx+150*DPR, h-(isSmallScreen()? 122:135)*DPR] },
+        ai:    { name:[cx, (isSmallScreen()? 14:22)*DPR],   cards:[cx-45*DPR, (isSmallScreen()? 118:130)*DPR,    cx+45*DPR, (isSmallScreen()? 118:130)*DPR],    chips:[cx+180*DPR, (isSmallScreen()? 46:60)*DPR] }
       };
     }
     function draw(){
       drawTable();
       const p=positions();
       ctx.fillStyle='#e2e8f0'; ctx.textAlign='center'; ctx.textBaseline='middle';
-      ctx.font = `${14*DPR}px Segoe UI`;
+      ctx.font = `${(isSmallScreen()?12:14)*DPR}px Segoe UI`;
       ctx.fillText(`${state.players[0].name}`, p.human.name[0], p.human.name[1]);
       ctx.fillText(`${state.players[1].name}`, p.ai.name[0], p.ai.name[1]);
       // Big chip stacks below names
-      ctx.font = `${34*DPR}px Arial Black`;
-      ctx.fillStyle = '#e2e8f0';
-      ctx.fillText(`${state.players[0].stack} chips`, p.human.name[0], p.human.name[1]+18*DPR);
-      ctx.fillText(`${state.players[1].stack} chips`, p.ai.name[0], p.ai.name[1]+18*DPR);
-      const dpos = state.dealer===0? [p.human.cards[0]-36*DPR, p.human.cards[1]+20*DPR] : [p.ai.cards[0]-36*DPR, p.ai.cards[1]-20*DPR];
+      // Total chip stacks (left of each player's cards); tighter on small screens
+      drawChipBank(p.human.cards[0] - (isSmallScreen()? 84:110)*DPR, p.human.cards[1], state.players[0].stack);
+      drawChipBank(p.ai.cards[0] - (isSmallScreen()? 90:120)*DPR, p.ai.cards[1], state.players[1].stack);
+      // Dealer button next to player's name
+      const dn = state.dealer===0 ? p.human.name : p.ai.name;
+      const dpos = state.dealer===0 ? [dn[0]-58*DPR, dn[1]] : [dn[0]-58*DPR, dn[1]];
       drawDealerButton(dpos[0], dpos[1]);
       ctx.fillStyle='#fbbf24'; ctx.font = `${18*DPR}px Arial Black`; ctx.fillText(`Pot: ${state.pot}`, p.pot[0], p.pot[1]);
       for(let i=0;i<5;i++){
@@ -399,8 +547,8 @@
         const show = i < state.revealed.board;
         drawCard(x,y, c||{r:14,s:0}, show);
       }
-      drawChipStack(p.human.cards[0]+150*DPR, p.human.cards[1], state.betThisRound[0]||0);
-      drawChipStack(p.ai.cards[0]+150*DPR, p.ai.cards[1], state.betThisRound[1]||0);
+      drawBetIndicator(p.human.cards[2], p.human.cards[3], state.betThisRound[0]||0);
+      drawBetIndicator(p.ai.cards[2], p.ai.cards[3], state.betThisRound[1]||0);
       const h0 = state.players[0].hole, h1 = state.players[1].hole;
       if(state.revealed.human>=1 && h0[0]) drawCard(p.human.cards[0], p.human.cards[1], h0[0], true);
       if(state.revealed.human>=2 && h0[1]) drawCard(p.human.cards[2], p.human.cards[3], h0[1], true);
@@ -416,7 +564,7 @@
         drawCard(x,y, m.card, m.faceUp);
         if(t>=1){ state.moving=null; if(m.onDone) m.onDone(); }
       }
-      if(state.animating || state.moving) requestAnimationFrame(draw);
+      if((state.animating && !state.glAnimating) || state.moving) requestAnimationFrame(draw);
     }
 
     // Betting logic
@@ -490,7 +638,7 @@
 
       const p=positions();
       const deckPos = { x: canvas.width/2 + 220*DPR, y: canvas.height/2 - 40*DPR };
-      state.animating = true; updateControls();
+      state.animating = true; state.glAnimating = !!pixiApp; updateControls();
       const queue = [];
       for(let i=0;i<remaining;i++){
         const idx = startIdx + i;
@@ -498,10 +646,11 @@
         queue.push({ idx, card: state.board[idx], to: { x: p.board[idx][0], y: p.board[idx][1] } });
       }
       function animateNext(){
-        if(queue.length===0){ state.animating=false; updateControls(); doShowdown(); return; }
+        if(queue.length===0){ state.animating=false; state.glAnimating=false; updateControls(); doShowdown(); return; }
         const item = queue.shift();
         if(pixiApp){
-          flyCard(deckPos, item.to, item.card, true, 100, ()=>{
+          getCardTexture(item.card, true, isSmallScreen()?0.9:1);
+          flyCard(deckPos, item.to, item.card, true, 110, ()=>{
             state.revealed.board = Math.max(state.revealed.board, item.idx+1);
             animateNext();
           });
@@ -517,7 +666,7 @@
       return true;
     }
 
-    // Dealing animation (hole cards then immediate flop exposed)
+    // Dealing animation (hole cards only; preflop betting before flop)
     function startDealAnimation(){
       const p=positions();
       const deckPos = { x: canvas.width/2 + 220*DPR, y: canvas.height/2 - 40*DPR };
@@ -525,21 +674,17 @@
         { who:'human', idx:0, to:{x:p.human.cards[0], y:p.human.cards[1]}, faceUp:true },
         { who:'ai',    idx:0, to:{x:p.ai.cards[0],    y:p.ai.cards[1]},    faceUp:false },
         { who:'human', idx:1, to:{x:p.human.cards[2], y:p.human.cards[3]}, faceUp:true },
-        { who:'ai',    idx:1, to:{x:p.ai.cards[2],    y:p.ai.cards[3]},    faceUp:false },
-        { who:'board', idx:0, to:{x:p.board[0][0],    y:p.board[0][1]},    faceUp:true },
-        { who:'board', idx:1, to:{x:p.board[1][0],    y:p.board[1][1]},    faceUp:true },
-        { who:'board', idx:2, to:{x:p.board[2][0],    y:p.board[2][1]},    faceUp:true }
+        { who:'ai',    idx:1, to:{x:p.ai.cards[2],    y:p.ai.cards[3]},    faceUp:false }
       ];
       let i=0;
       let progressed=false;
       function step(){
         if(i>=seq.length){
-          // Move to flop street and enable action
-          state.street='flop';
-      state.curBet=0; state.betThisRound=[0,0]; state.lastAggressor=-1; state.acted=[false,false]; state.toAct = (state.dealer===1? 0 : 1);
-          // Ensure board has 3 cards
-          while(state.board.length<3){ state.board.push(state.deck.pop()); }
-          state.animating=false; updateControls(); draw(); if(!maybeAutoRunout()) maybeAIMove();
+          // Finish dealing hole cards; remain in preflop for betting
+          state.animating=false; state.glAnimating=false;
+          updateControls();
+          draw();
+          if(!maybeAutoRunout()) maybeAIMove();
           return;
         }
         const s=seq[i++];
@@ -548,11 +693,13 @@
         const card = s.who==='human' ? state.players[0].hole[s.idx] : s.who==='ai' ? state.players[1].hole[s.idx] : state.board[s.idx];
         // WebGL sprite for the card fly animation (fallbacks to canvas if WebGL missing)
         if(pixiApp){
+          state.glAnimating = true;
+          getCardTexture(card, !!s.faceUp, isSmallScreen()?0.9:1);
           flyCard(deckPos, s.to, card, s.faceUp, 120, ()=>{
             if(s.who==='human'){ state.revealed.human = Math.max(state.revealed.human, s.idx+1); }
             else if(s.who==='ai'){ state.revealed.ai = Math.max(state.revealed.ai, s.idx+1); }
             else { state.revealed.board = Math.max(state.revealed.board, s.idx+1); }
-            progressed=true; draw(); setTimeout(step, 10);
+            progressed=true; setTimeout(()=>{ state.glAnimating=false; draw(); setTimeout(step, 10); }, 0);
           });
         } else {
           state.moving = { from: deckPos, to: s.to, start: performance.now(), dur: 160, card, faceUp: s.faceUp, onDone: ()=>{
@@ -568,9 +715,8 @@
       // Watchdog: force reveal if animation fails
       setTimeout(()=>{
         if(!progressed){
-          state.revealed.human=2; state.revealed.ai=0; // keep AI hidden pre-showdown
-          while(state.board.length<3){ state.board.push(state.deck.pop()); }
-          state.revealed.board=3; state.animating=false; draw(); updateControls(); if(!maybeAutoRunout()) maybeAIMove();
+          state.revealed.human=2; state.revealed.ai=2; // show both hole card backs
+          state.animating=false; draw(); updateControls(); if(!maybeAutoRunout()) maybeAIMove();
         }
       }, 1200);
     }
@@ -606,7 +752,7 @@
       const btn=document.getElementById(contId); if(btn) btn.onclick=proceed;
       setTimeout(()=>{ proceed(); }, 5000);
     }
-    function playerFold(pid){ state.players[pid].folded=true; const opp=1-pid; state.players[opp].stack += state.pot; state.message=`${state.players[opp].name} wins ${state.pot}`; state.pot=0; state.street='showdown'; showLog(state.message); updateControls(); draw(); setTimeout(()=>resetHand(), 1400); }
+    function playerFold(pid){ state.players[pid].folded=true; const opp=1-pid; state.players[opp].stack += state.pot; state.message=`${state.players[opp].name} wins ${state.pot}`; state.pot=0; state.street='showdown'; if(pid===1) showAIAction('folded'); showLog(state.message); updateControls(); draw(); setTimeout(()=>resetHand(), 1400); }
     function playerCall(pid){
       const need=toCall(pid); const p=state.players[pid]; const pay=Math.min(need, p.stack);
       p.stack-=pay; state.betThisRound[pid]+=pay; state.pot+=pay;
@@ -640,6 +786,7 @@
     const betAmt = document.getElementById('betAmt');
     const betRaiseBtn = document.getElementById('betRaiseBtn');
     function showLog(msg){ const el=document.getElementById('log'); el.textContent=msg; el.style.display='block'; clearTimeout(showLog._t); showLog._t=setTimeout(()=>{ el.style.display='none'; }, 2200); }
+    function showAIAction(text){ const el=document.getElementById('log'); el.textContent = `Your AI poker player ${text}`; el.style.display='block'; clearTimeout(showAIAction._t); showAIAction._t=setTimeout(()=>{ el.style.display='none'; }, 2000); }
     function updateControls(){
       const pid=0; const meTurn = state.toAct===pid && !state.players[pid].folded && state.street!=='showdown' && !state.animating;
       const callable = toCall(pid);
@@ -663,6 +810,23 @@
     let aiTimer = null;
     function scheduleAI(delay){ if(aiTimer) { try{ clearTimeout(aiTimer); }catch{} aiTimer=null; } aiTimer = setTimeout(()=>{ aiTimer=null; if(state.toAct===1 && !state.players[1].folded && state.street!=='showdown' && !state.animating) aiAct(); }, delay); }
     function maybeAIMove(){ if(state.toAct!==1 || state.players[1].folded || state.street==='showdown') return; scheduleAI(150 + Math.random()*200); }
+    // Preflop strength heuristic 0..1 for all-in discipline
+    function preflopScore(hole){
+      if(!hole || hole.length<2) return 0;
+      const r1 = hole[0].r, r2 = hole[1].r; const hi = Math.max(r1,r2), lo = Math.min(r1,r2);
+      const suited = hole[0].s === hole[1].s;
+      const gap = Math.abs(r1 - r2) - 1;
+      let score;
+      if(hi===lo){
+        score = 0.84 + (hi-2)*0.01; // 22 ~0.84 .. AA ~0.97
+      } else {
+        score = (hi/14)*0.45 + (lo/14)*0.25;
+        if(suited) score += 0.06;
+        if(gap<=0) score += 0.05; else if(gap===1) score += 0.03; else if(gap>=3) score -= 0.06;
+        if(hi===14 && lo>=10) score += 0.04;
+      }
+      return Math.max(0, Math.min(1, score));
+    }
     function aiAct(){
       const pid=1; const me=state.players[pid]; const hero=state.players[0];
       const need = toCall(pid);
@@ -672,40 +836,47 @@
         else { state.toAct=0; updateControls(); draw(); if(!maybeAutoRunout()){} } 
         return; 
       }
-      const iters = state.street==='river'? 800 : state.street==='turn'? 600 : state.street==='flop'? 500 : 400;
-      const eq = estimateEquity(me.hole, state.board, hero.hole, iters);
       const potNow = state.pot;
+      const isFacingAllIn = need >= me.stack;
+      const iters = isFacingAllIn ? 3500 : (state.street==='river'? 1200 : state.street==='turn'? 900 : state.street==='flop'? 700 : 600);
+      const eq = estimateEquity(me.hole, state.board, hero.hole, iters);
       const minR = openAmountRange(pid)[0];
-      const callEV = need>0 ? (eq*(potNow+need) - (1-eq)*need) : 0;
       const posAdv = (state.dealer===pid && (state.street==='flop'||state.street==='turn'||state.street==='river')) ? 0.02 : 0.0;
-      const strong = eq > (0.60 - posAdv);
-      const medium = eq > (0.48 - posAdv);
-      const weak = eq < (0.36 - posAdv);
-      const bluffChance = Math.max(0.03, 0.18 - eq*0.12);
+      const strong = eq > (0.63 - posAdv);
+      const medium = eq > (0.50 - posAdv);
+      const weak = eq < (0.40 - posAdv);
       const rnd = Math.random();
       if(need>0){
-        if(callEV < -Math.min(2, BIG_BLIND) && weak && rnd>0.25){
-          if(rnd<bluffChance && me.stack>minR) {
-            const size = Math.min(allInCap(pid), Math.max(minR, Math.round((potNow+need)* (0.8 + Math.random()*0.6))));
-            playerBetOrRaise(pid, size); return;
-          }
-          playerFold(pid); return;
+        const potOdds = need / Math.max(1, (potNow + need));
+        let edge = state.street==='preflop'? 0.07 : state.street==='flop'? 0.045 : state.street==='turn'? 0.03 : 0.02;
+        if(isFacingAllIn) edge += 0.03;
+        if(state.street==='preflop' && isFacingAllIn){
+          const pf = preflopScore(me.hole);
+          if(pf < 0.55){ playerFold(pid); return; }
         }
-        if(strong && me.stack>minR && rnd<0.65){
-          const mult = state.street==='preflop'? 3.2 : state.street==='flop'? 2.4 : 1.8;
+        const mustHave = potOdds + edge;
+        if(eq < mustHave){ playerFold(pid); return; }
+        if(!isFacingAllIn && strong && me.stack>minR && rnd<0.6){
+          const mult = state.street==='preflop'? 3.0 : state.street==='flop'? 2.2 : 1.7;
           const size = Math.min(allInCap(pid), Math.max(minR, Math.round((need + potNow) * (mult*0.35))));
-          playerBetOrRaise(pid, size); return;
+          playerBetOrRaise(pid, size); showAIAction(`raised ${size}`); return;
         }
-        // Call in all other cases
-        playerCall(pid); if(isAllInAndEqual()) { updateControls(); draw(); maybeAutoRunout(); } return;
+        playerCall(pid); showAIAction(`called ${need}`); if(isAllInAndEqual()) { updateControls(); draw(); maybeAutoRunout(); } return;
       } else {
-        if(strong || (medium && rnd<0.7) || (rnd<bluffChance && me.stack>minR)){
-          const base = state.street==='preflop'? 5 : state.street==='flop'? Math.round(potNow*0.66) : Math.round(potNow*0.55);
+        const base = state.street==='preflop'? 5 : state.street==='flop'? Math.round(potNow*0.66) : Math.round(potNow*0.55);
+        if(strong){
           const size = Math.min(allInCap(pid), Math.max(minR, base));
-          playerBetOrRaise(pid, size); return;
+          playerBetOrRaise(pid, size); showAIAction(`bet ${size}`); return;
         }
-        // Check
-        state.acted[pid] = true;
+        const smallBluffChance = state.street==='river'? 0.0 : 0.07;
+        if(medium && rnd<0.33){
+          const size = Math.min(allInCap(pid), Math.max(minR, Math.round(base*0.7)));
+          playerBetOrRaise(pid, size); showAIAction(`bet ${size}`); return;
+        } else if(!weak && rnd<smallBluffChance){
+          const size = Math.min(allInCap(pid), Math.max(minR, Math.round(base*0.5)));
+          playerBetOrRaise(pid, size); showAIAction(`bet ${size}`); return;
+        }
+        state.acted[pid] = true; showAIAction('checked');
         if(bothActedAndEqual() || bothCheckedThisStreet()) endStreet(); 
         else { state.toAct=0; updateControls(); draw(); if(!maybeAutoRunout()){} }
       }

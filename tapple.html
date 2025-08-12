@@ -104,7 +104,7 @@
       <span id="category"></span>
       <span style="margin-left:auto"></span>
               <span id="timeBlock"><span id="timeLabel">Time:</span><span id="timer">12.0</span></span>
-      <span id="heardChip" class="chip" style="display:none;">Heard: —</span>
+      <!-- removed heard chip UI -->
       <div id="wordForm" style="display:flex; gap:10px; align-items:center;">
         <button type="button" id="newRoundBtn">New Round</button>
         <button type="button" id="shuffleCatBtn">Shuffle Category</button>
@@ -131,14 +131,7 @@
     let mrReqTimer = null, mrStopTimer = null;
     let heardHideTimer = null;
     let claimCooldownUntil = 0; // block multiple claims from one utterance
-    function showHeard(text) {
-      const chip = document.getElementById('heardChip');
-      if (!chip) return;
-      chip.textContent = `Heard: ${text}`;
-      chip.style.display = 'inline-block';
-      if (heardHideTimer) clearTimeout(heardHideTimer);
-      heardHideTimer = setTimeout(() => { chip.style.display = 'none'; }, 2500);
-    }
+    function showHeard(text) { /* no-op per request */ }
 
     // Audio utils: encode 16 kHz mono WAV for better STT accuracy
     function writeString(view, offset, str) {
@@ -245,6 +238,14 @@
       if (nowTs < claimCooldownUntil) { return; }
       // Normalize helpers and fuzzy matching
       const norm = (s) => (s || '').toLowerCase().replace(/[^a-z]/g, '');
+      // Common expansions for STT mishearings
+      const expand = (s) => s
+        .replace(/&/g,'and')
+        .replace(/^mc([a-z])/,'mc$1')
+        .replace(/^st\s+/,'saint ')
+        .replace(/\bnyc\b/,'newyork')
+        .replace(/\bla\b/,'losangeles')
+        .replace(/\bsf\b/,'sanfrancisco');
       const dist = (a, b) => {
         const m = a.length, n = b.length;
         if (m === 0) return n; if (n === 0) return m;
@@ -266,13 +267,14 @@
       const bestFuzzyMatch = (tokens, bankWords) => {
         let best = null; // {word, score, bn}
         for (const tk of tokens) {
-          const tn = norm(tk);
+          const tn = norm(expand(tk));
           if (!tn) continue;
           for (const w of bankWords) {
-            const bn = norm(w);
+            const bn = norm(expand(w));
             if (!bn) continue;
             const d = dist(tn, bn);
-            const tol = Math.ceil(Math.max(2, bn.length * 0.3));
+            // Slightly more tolerant for short words; stricter for long words
+            const tol = Math.ceil(Math.max(2, Math.min(3, bn.length * 0.28)));
             if (d <= tol) {
               const score = d / Math.max(1, bn.length);
               if (!best || score < best.score) best = { word: w, score, bn };
@@ -287,9 +289,9 @@
       let matchedNorm = '';
       const tokens = text.split(/[^A-Za-z]+/).filter(Boolean);
       // Prefer exact token match against bank, in order
-      const bankNormSet = new Set(bank.map(w => norm(w)));
+      const bankNormSet = new Set(bank.map(w => norm(expand(w))));
       for (const tk of tokens) {
-        const tn = norm(tk);
+        const tn = norm(expand(tk));
         if (tn && bankNormSet.has(tn)) { matchedNorm = tn; break; }
       }
       // Fallback to fuzzy on tokens only
@@ -434,11 +436,12 @@
               // Provide category hints to improve recognition fidelity
               try {
                 const cat = gameState.currentCategory;
-                const bank = (CATEGORY_BANK[cat] || []).slice(0, 80).join(', ');
-                form.append('hints', bank);
+                const raw = (CATEGORY_BANK[cat] || []).slice(0, 120);
+                const normalized = raw.map(w=>w.toLowerCase());
+                const uniq = Array.from(new Set(normalized)).slice(0, 120);
+                form.append('hints', uniq.join(', '));
               } catch {}
-              const chip = document.getElementById('heardChip');
-              if (chip) { chip.textContent = 'Processing…'; chip.style.display = 'inline-block'; }
+              // no HUD status
               console.log('Sending to STT endpoint...');
               const resp = await fetch('/api/stt', { method: 'POST', body: form, cache: 'no-store' });
               console.log('STT response status:', resp.status);
@@ -453,9 +456,7 @@
                 console.log('No text returned, continuing to listen');
               }
               // Always reset to listening after processing
-              setTimeout(() => {
-                if (chip && voiceActive) { chip.textContent = 'Listening…'; }
-              }, 300);
+              // keep listening silently
             } catch (err) {
               console.log('STT processing error:', err);
             }
@@ -496,9 +497,7 @@
         voiceActive = true;
         const btn = document.getElementById('voiceBtn');
         if (btn) { btn.dataset.active = '1'; btn.style.borderColor = '#22c55e'; }
-        // Show listening state in HUD
-        const chip = document.getElementById('heardChip');
-        if (chip) { chip.textContent = 'Listening…'; chip.style.display = 'inline-block'; }
+        // no HUD status
         return;
       } catch (e) {
         // If mic path fails, try browser SpeechRecognition if present
@@ -509,8 +508,7 @@
             voiceActive = true;
             const btn = document.getElementById('voiceBtn');
             if (btn) { btn.dataset.active = '1'; btn.style.borderColor = '#22c55e'; }
-            const chip = document.getElementById('heardChip');
-            if (chip) { chip.textContent = 'Listening…'; chip.style.display = 'inline-block'; }
+            // no HUD status
             return;
           } catch {}
         }
@@ -538,8 +536,7 @@
       if (mrRec) { try { mrRec.stop(); } catch {} }
       if (mrStream) { try { mrStream.getAudioTracks().forEach(t => t.stop()); } catch {} }
       mrRec = null; mrStream = null; sttBusy = false;
-      const chip = document.getElementById('heardChip');
-      if (chip) { chip.style.display = 'none'; }
+      // no HUD status
       const btn = document.getElementById('voiceBtn');
       if (btn) { btn.dataset.active = '0'; btn.style.borderColor = '#475569'; }
     }
