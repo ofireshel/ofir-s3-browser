@@ -89,7 +89,7 @@
     let DEFENDER_R = 22; // 20% larger (scaled on mobile)
     const BALL_R = 9;
     const CONTACT_PAD = 8; // require visible overlap before tackle triggers
-    let CARRIER_MULT = 1.8; // ball carrier speed multiplier (mobile override in resize)
+    let CARRIER_MULT = 3.0; // ball carrier speed multiplier (uniform across devices)
 
     const BASE_SPEED = 0.5; // px/frame (50% slower)
     const SPRINT_MULT = 1.15;
@@ -108,7 +108,7 @@
     const state = {
       clockMs: 45_000,
       down: 1,
-      distance: 10,
+      distance: 75, // yards to touchdown (100 - 25 starting yard line)
       ballOnYard: 25,
       possession: 'human',
       playActive: false,
@@ -185,11 +185,16 @@
       state.defenders = defenders;
     }
 
+    function yardsText(y){
+      const v = Math.max(0, Number.isFinite(y) ? y : 0);
+      const s = v.toFixed(1);
+      return s.endsWith('.0') ? s.slice(0, -2) : s;
+    }
     function updateHud(){
       const clock = Math.max(0, Math.floor(state.clockMs/1000));
       const mm = String(Math.floor(clock/60)).padStart(2,'0');
       const ss = String(clock%60).padStart(2,'0');
-      hud.textContent = `${ordinal(state.down)} & ${state.distance} | Ball on ${state.ballOnYard} | ${mm}:${ss}`;
+      hud.textContent = `${ordinal(state.down)} & ${yardsText(state.distance)} | Ball on ${Math.round(state.ballOnYard)} | ${mm}:${ss}`;
     }
     function ordinal(n){ return ['','1st','2nd','3rd'][n] || `${n}th`; }
 
@@ -314,6 +319,8 @@
         d.x += d.vx; d.y += d.vy;
         if(reactNow){ d.reactAccum = 0; d.reactDelay = Math.random()*(DEF_REACT_MAX_MS-DEF_REACT_MIN_MS)+DEF_REACT_MIN_MS; }
       }
+      // After moving defenders, resolve blocking so fruits impede each other
+      resolveDefenderBlocking();
     }
 
     // Receivers simple routes
@@ -358,6 +365,11 @@
         if(caughtBy!==null){
           state.hasBall = caughtBy; // receiver index
           state.ballVel.x = state.ballVel.y = 0;
+          // Announce yards gained and yards to go immediately on catch
+          const spotYardsExact = (H - 30 - state.ballPos.y) / PX_PER_YARD;
+          const gainedSoFar = Math.max(0, spotYardsExact - state.lineOfScrimmageYard);
+          const toGoNow = Math.max(0, state.distance - gainedSoFar);
+          showCenterMessage(`Caught! +${yardsText(gainedSoFar)} yards — ${yardsText(toGoNow)} yards to go`);
         }
         if(state.ballPos.x < 40 || state.ballPos.x > W-40 || state.ballPos.y < 20){
           whistleDead('incomplete');
@@ -375,29 +387,28 @@
     }
 
     function whistleDead(reason){
-      // End of play: spot ball and set next down/distance
-      const spotYards = yToYard(state.ballPos.y);
-      if(reason==='touchdown' || spotYards>=100){
+      // End of play: spot ball and advance down; never reset to 1st down
+      const spotYardsInt = yToYard(state.ballPos.y);
+      const spotYardsExact = (H - 30 - state.ballPos.y) / PX_PER_YARD; // exact yards as float
+      if(reason==='touchdown' || spotYardsInt>=100){
         state.scored = true;
         state.playActive = false; state.snapped = false; state.gameOver = true;
         playCrowdRoar();
         showGameOver('Touchdown! Game Over');
         return;
       }
-      let gained = spotYards - state.lineOfScrimmageYard;
+      let gained = spotYardsExact - state.lineOfScrimmageYard;
       if(reason==='incomplete') gained = 0; // incomplete pass: no yardage
-      if(gained >= state.distance){
-        state.down = 1; state.distance = 10; state.ballOnYard = spotYards; resetPlay();
+      // Reduce yards to go but never reset to a new first down
+      state.distance = Math.max(0, state.distance - Math.max(0, gained));
+      state.ballOnYard = Math.max(1, spotYardsExact);
+      state.down += 1;
+      if(state.down>4){
+        state.playActive = false; state.snapped = false; state.gameOver = true;
+        showGameOver('No score in 4 tries. Game Over');
       } else {
-        state.down += 1;
-        state.distance = Math.max(1, state.distance - Math.max(0, gained));
-        state.ballOnYard = Math.max(1, spotYards);
-        if(state.down>4){
-          state.playActive = false; state.snapped = false; state.gameOver = true;
-          showGameOver('No score in 4 tries. Game Over');
-        } else {
-          resetPlay();
-        }
+        announceDown();
+        resetPlay();
       }
     }
 
@@ -417,6 +428,41 @@
 
     function distance(a,b){ return Math.hypot(a.x-b.x, a.y-b.y); }
     function clamp(v,lo,hi){ return Math.max(lo, Math.min(hi, v)); }
+
+    // Defenders physically block each other so a slower fruit can shield the runner
+    function defenderMass(d){
+      const speed = Math.max(0.5, d.speedMult || 1);
+      const burstFactor = (d.type==='apple' && d.burst>0) ? 3.0 : 1.0;
+      // Slower fruits have greater mass; bursty fast apples are lighter
+      return 1 / (speed * burstFactor);
+    }
+    function resolveDefenderBlocking(){
+      const defenders = state.defenders;
+      if(!defenders || defenders.length < 2) return;
+      const minDist = DEFENDER_R*2 - 2; // allow slight visual overlap
+      for(let i=0; i<defenders.length; i++){
+        for(let j=i+1; j<defenders.length; j++){
+          const a = defenders[i], b = defenders[j];
+          const dx = b.x - a.x, dy = b.y - a.y;
+          const dist = Math.hypot(dx,dy) || 0.0001;
+          if(dist < minDist){
+            const nx = dx / dist, ny = dy / dist;
+            const overlap = (minDist - dist);
+            const ma = defenderMass(a), mb = defenderMass(b);
+            const total = ma + mb;
+            const pushA = overlap * (mb/total);
+            const pushB = overlap * (ma/total);
+            a.x = clamp(a.x - nx * pushA, 40, W-40);
+            a.y = clamp(a.y - ny * pushA, 30, H-30);
+            b.x = clamp(b.x + nx * pushB, 40, W-40);
+            b.y = clamp(b.y + ny * pushB, 30, H-30);
+            // Damp movement when colliding to simulate getting stuck behind a blocker
+            a.vx *= 0.75; a.vy *= 0.75;
+            b.vx *= 0.75; b.vy *= 0.75;
+          }
+        }
+      }
+    }
 
     // Render
     function drawField(){
@@ -535,7 +581,7 @@
       const isMobile = cssW <= 820;
       FRUIT_FONT_SIZE = isMobile ? Math.round(58 * 0.7) : 58;
       DEFENDER_R = isMobile ? Math.round(22 * 0.7) : 22;
-      CARRIER_MULT = isMobile ? 3.0 : 1.8; // ensure 3x on mobile
+      CARRIER_MULT = 3.0; // 3x on all devices
       ACCEL = isMobile ? 0.18 : 0.12; // slightly quicker acceleration on mobile
     }
     resizeCanvas();
@@ -562,10 +608,46 @@
     }
     function announceDown(){
       const el = document.getElementById('announce');
-      el.textContent = `${ordinal(state.down)} & ${state.distance} on the ${state.ballOnYard}`;
+      el.textContent = `${ordinal(state.down)} down - ${yardsText(state.distance)} yards to go`;
+      // Position in the center of the screen with very large red text
+      el.style.left = '50%';
+      el.style.top = '50%';
+      el.style.transform = 'translate(-50%, -50%)';
       el.style.display = 'block'; el.style.opacity = '1';
-      el.style.color = '#ff1a1a'; el.style.fontSize = '36px'; el.style.borderColor = 'rgba(255,26,26,.85)';
-      setTimeout(()=>{ el.style.transition='opacity .6s'; el.style.opacity='0'; setTimeout(()=>{ el.style.display='none'; el.style.transition=''; }, 700); }, 1800);
+      el.style.color = '#ff1a1a';
+      el.style.fontSize = '72px';
+      el.style.fontWeight = '900';
+      el.style.borderColor = 'rgba(255,26,26,.85)';
+      // Fade out and restore original top positioning for other messages
+      setTimeout(()=>{
+        el.style.transition='opacity .6s'; el.style.opacity='0';
+        setTimeout(()=>{
+          el.style.display='none'; el.style.transition='';
+          el.style.top = '18px';
+          el.style.transform = 'translateX(-50%)';
+        }, 700);
+      }, 1800);
+    }
+
+    function showCenterMessage(msg){
+      const el = document.getElementById('announce');
+      el.textContent = msg;
+      el.style.left = '50%';
+      el.style.top = '50%';
+      el.style.transform = 'translate(-50%, -50%)';
+      el.style.display = 'block'; el.style.opacity = '1';
+      el.style.color = '#ff1a1a';
+      el.style.fontSize = '56px';
+      el.style.fontWeight = '900';
+      el.style.borderColor = 'rgba(255,26,26,.85)';
+      setTimeout(()=>{
+        el.style.transition='opacity .6s'; el.style.opacity='0';
+        setTimeout(()=>{
+          el.style.display='none'; el.style.transition='';
+          el.style.top = '18px';
+          el.style.transform = 'translateX(-50%)';
+        }, 700);
+      }, 1200);
     }
 
     function playCrowdRoar(){
@@ -586,10 +668,24 @@
 
     function showGameOver(msg){
       const el = document.getElementById('announce');
-      el.textContent = msg;
+      el.innerHTML = `${msg}<div style="margin-top:10px;display:flex;gap:12px;justify-content:center"><button id="playAgainYes" class="actbtn" aria-label="Play again">Yes</button><button id="playAgainNo" class="actbtn" aria-label="Back to menu">No</button></div>`;
       el.style.display = 'block';
       el.style.opacity = '1';
       el.style.transition = '';
+      const yesBtn = document.getElementById('playAgainYes');
+      const noBtn = document.getElementById('playAgainNo');
+      if (yesBtn) {
+        yesBtn.addEventListener('click', function(){
+          state.gameOver = false;
+          resetPlay(25);
+          el.style.display = 'none';
+        });
+      }
+      if (noBtn) {
+        noBtn.addEventListener('click', function(){
+          window.location.href = 'games.html';
+        });
+      }
     }
   })();
   </script>
