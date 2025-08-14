@@ -1,0 +1,599 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+  <title>Arcade Football</title>
+  <style>
+    :root {
+      --bg: linear-gradient(135deg, #0f172a, #0b1220);
+      --panel: rgba(14,23,42,0.9);
+      --border: #334155;
+      --text: #e2e8f0;
+      --muted: #93c5fd;
+      --accent1: #60a5fa;
+      --accent2: #a78bfa;
+      --turf: #0b5c2a;
+      --turf-dark: #094d23;
+      --line: #e2e8f0;
+      --offense: #38bdf8;
+      --defense: #f97316;
+      --ball: #a0522d;
+    }
+    html, body { height: 100%; margin: 0; font-family: 'Segoe UI', Arial, sans-serif; background: var(--bg); color: var(--text); }
+    .wrap { min-height: 100%; display: grid; grid-template-rows: auto 1fr auto; }
+    header { display: flex; align-items: center; gap: 12px; padding: calc(10px + env(safe-area-inset-top)) 16px 12px 16px; background: var(--panel); border-bottom: 1px solid var(--border); }
+    header a { color: var(--muted); text-decoration: none; font-weight: 700; }
+    main { position: relative; }
+    #hud { display: none; }
+    #controls { display: none; }
+    canvas { width: 100vw; height: calc(100vh - 64px); display: block; background: repeating-linear-gradient(90deg, var(--turf), var(--turf) 40px, var(--turf-dark) 40px, var(--turf-dark) 80px); touch-action: none; }
+    footer { padding: 10px; color: #94a3b8; text-align: center; }
+    .btn { padding: 8px 12px; border-radius: 10px; border: 2px solid #475569; background: linear-gradient(135deg, #1e293b, #334155); color: var(--text); font-weight: 700; text-decoration: none; }
+    .padbtn, .actbtn { width: 60px; height: 60px; background: rgba(30,41,59,.8); border: 2px solid #475569; border-radius: 12px; color: var(--text); font-weight: 800; font-size: 16px; }
+    .actbtn { width: 90px; height: 52px; font-size: 15px; }
+    .padbtn:active, .actbtn:active { transform: translateY(1px); }
+    @media (max-width: 820px) {
+      #dock { bottom: calc(80px + env(safe-area-inset-bottom)) !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <a href="games.html">← All Games</a>
+      <div style="flex:1"></div>
+      <div>Arcade Football</div>
+    </header>
+    <main>
+      <canvas id="field" width="960" height="560"></canvas>
+      <div id="hud">1st & 10 | Ball on 25 | 00:45</div>
+      <div id="controls">
+        WASD/Arrows: move • Shift: sprint • Space: snap • Mouse: aim pass • Click: throw<br>
+        C: change receiver • R: reset play
+      </div>
+      <div id="announce" style="position:absolute;left:50%;top:18px;transform:translateX(-50%);background:rgba(0,0,0,.35);border:2px solid rgba(248,113,113,.55);padding:10px 16px;border-radius:14px;font-weight:900;letter-spacing:1px;display:none;text-align:center;max-width:90%"></div>
+      <div id="dock" style="position:absolute;left:50%;bottom:14px;transform:translateX(-50%);display:flex;align-items:center;gap:16px;user-select:none;touch-action:none">
+        <div id="pad" style="display:grid;grid-template-columns:60px 60px 60px;grid-template-rows:60px 60px 60px;gap:8px">
+          <div></div>
+          <button data-key="ArrowUp" class="padbtn">W</button>
+          <div></div>
+          <button data-key="ArrowLeft" class="padbtn">A</button>
+          <button data-key="Shift" class="padbtn">⏩</button>
+          <button data-key="ArrowRight" class="padbtn">D</button>
+          <div></div>
+          <button data-key="ArrowDown" class="padbtn">S</button>
+          <div></div>
+        </div>
+      </div>
+    </main>
+    <footer>
+      <a class="btn" href="games.html">Back</a>
+    </footer>
+  </div>
+  <script>
+  (function(){
+    const DPR = Math.min(2, window.devicePixelRatio || 1);
+    const canvas = document.getElementById('field');
+    const ctx = canvas.getContext('2d');
+    let W = canvas.clientWidth, H = canvas.clientHeight;
+    const hud = document.getElementById('hud');
+
+    // Game constants
+    const FIELD_LEN_YARDS = 100;
+    const YARDS_PER_LINE = 10; // hash every 10 yds
+    let PX_PER_YARD = (H - 60) / FIELD_LEN_YARDS;
+    let LEFT_HASH = 80, RIGHT_HASH = W - 80;
+
+    const PLAYER_R = 18; // px (larger)
+    let DEFENDER_R = 22; // 20% larger (scaled on mobile)
+    const BALL_R = 9;
+    const CONTACT_PAD = 8; // require visible overlap before tackle triggers
+    let CARRIER_MULT = 1.8; // ball carrier speed multiplier (mobile override in resize)
+
+    const BASE_SPEED = 0.5; // px/frame (50% slower)
+    const SPRINT_MULT = 1.15;
+    const DEF_SPEED = 0.6; // 50% slower defense
+    const PASS_SPEED = 2.4; // slower passes
+    let ACCEL = 0.12;      // player acceleration smoothing (mobile override in resize)
+    const DEF_ACCEL = 0.10;  // defender acceleration smoothing
+    const TACKLE_HOLD_MS = 180; // must maintain contact this long to tackle
+    const DEF_REACT_MIN_MS = 120;
+    const DEF_REACT_MAX_MS = 220;
+    const PASS_LEAD = 12; // defenders lead prediction
+    const INTERCEPT_LEAD = 10;
+    const CONTAIN_MARGIN_X = 70;
+
+    // State
+    const state = {
+      clockMs: 45_000,
+      down: 1,
+      distance: 10,
+      ballOnYard: 25,
+      possession: 'human',
+      playActive: false,
+      snapped: false,
+      gameOver: false,
+      hasBall: 'qb', // 'qb' or receiver index
+      ballPos: {x: (LEFT_HASH+RIGHT_HASH)/2, y: yardToY(25)},
+      ballVel: {x:0,y:0},
+      qb: {x: (LEFT_HASH+RIGHT_HASH)/2, y: yardToY(23), vx:0, vy:0, stamina: 100},
+       receivers: [],
+       activeReceiver: 0,
+      defenders: [],
+      tackling: false,
+      scored: false,
+      sprint: false,
+      mouse: {x: W/2, y:H/2},
+      lastMoveDir: {x:0, y:-1},
+    };
+
+    function yardToY(yard){
+      return H - 30 - yard * PX_PER_YARD;
+    }
+    function yToYard(y){
+      return Math.round((H - 30 - y)/PX_PER_YARD);
+    }
+
+    function resetPlay(newSpot){
+      if(state.gameOver) return;
+      state.playActive = false;
+      state.snapped = false;
+      state.tackling = false;
+      state.scored = false;
+      state.hasBall = 'qb';
+      if(typeof newSpot === 'number') state.ballOnYard = Math.max(1, Math.min(99, newSpot));
+      state.lineOfScrimmageYard = state.ballOnYard;
+      const cx = (LEFT_HASH+RIGHT_HASH)/2;
+      state.qb.x = cx; state.qb.y = yardToY(state.ballOnYard-2);
+      state.qb.vx = state.qb.vy = 0; state.qb.stamina = 100;
+      const yBase = state.qb.y - 30;
+      state.receivers = [];
+      state.activeReceiver = 0;
+      spawnDefenders();
+      placeBallOnQB();
+      updateHud();
+    }
+
+    function placeBallOnQB(){
+      state.ballPos.x = state.qb.x; state.ballPos.y = state.qb.y-8;
+      state.ballVel.x = state.ballVel.y = 0;
+    }
+
+    function spawnDefenders(){
+      const defenders = [];
+      // Build fruit roster: 3 banana, 3 apple, 3 orange, 2 pear
+      const isMobile = W <= 820;
+      const fruits = isMobile
+        ? // 5 fruits on mobile: prioritize apples and variety
+          ['apple','banana','orange','pear','apple']
+        : [
+            ...Array(3).fill('banana'),
+            ...Array(3).fill('apple'),
+            ...Array(3).fill('orange'),
+            ...Array(2).fill('pear')
+          ];
+      const cy = state.qb.y; // keep defenders significantly ahead of the ball carrier
+      for(const f of fruits){
+        const x = 40 + Math.random()*(W-80);
+        // Place well ahead (toward top/goal) with some lateral variation
+        let y = Math.min(cy - 60 - Math.random()*140, H-60);
+        const iconFor = { banana:'🍌', apple:'🍎', orange:'🍊', pear:'🍐' };
+        const speedFor = { banana:1.0, apple:1.35, orange:1.08, pear:0.98 };
+        defenders.push({ x, y, vx:0, vy:0, role:'cover', type:f, icon: iconFor[f], speedMult: speedFor[f], burst:0, burstCooldown:0 });
+      }
+      state.defenders = defenders;
+    }
+
+    function updateHud(){
+      const clock = Math.max(0, Math.floor(state.clockMs/1000));
+      const mm = String(Math.floor(clock/60)).padStart(2,'0');
+      const ss = String(clock%60).padStart(2,'0');
+      hud.textContent = `${ordinal(state.down)} & ${state.distance} | Ball on ${state.ballOnYard} | ${mm}:${ss}`;
+    }
+    function ordinal(n){ return ['','1st','2nd','3rd'][n] || `${n}th`; }
+
+    // Input
+    const keys = new Set();
+    function startPlay(){
+      if(state.gameOver) return;
+      if(!state.snapped){
+        state.playActive = true; state.snapped = true;
+        state.playStartMs = performance.now();
+        playWhistle();
+        announceDown();
+      }
+    }
+
+    window.addEventListener('keydown', (e)=>{
+      if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','w','a','s','d','W','A','S','D',' ' ,'Shift','c','C','r','R'].includes(e.key)) e.preventDefault();
+      keys.add(e.key);
+      if(e.key===' ') { startPlay(); }
+      if(e.key==='c' || e.key==='C') state.activeReceiver = (state.activeReceiver+1)%state.receivers.length;
+      if(e.key==='r' || e.key==='R') { state.gameOver = false; resetPlay(25); }
+    });
+    window.addEventListener('keyup', (e)=>{
+      keys.delete(e.key);
+    });
+    canvas.addEventListener('mousemove', (e)=>{
+      const rect = canvas.getBoundingClientRect();
+      state.mouse.x = (e.clientX - rect.left) * (canvas.width/rect.width);
+      state.mouse.y = (e.clientY - rect.top) * (canvas.height/rect.height);
+    });
+    let isTouchAiming = false; let aimPoint = {x:0,y:0};
+    function pointerToCanvas(e){
+      const rect = canvas.getBoundingClientRect();
+      const x = (('touches' in e && e.touches[0]) ? e.touches[0].clientX : e.clientX) - rect.left;
+      const y = (('touches' in e && e.touches[0]) ? e.touches[0].clientY : e.clientY) - rect.top;
+      return { x: x * (canvas.width/rect.width), y: y * (canvas.height/rect.height) };
+    }
+    // remove pass aim handlers
+
+    // On-screen pad and actions
+    function bindPressButton(el, key){
+      const down = ()=>{ keys.add(key); if(!state.snapped) startPlay(); };
+      const up = ()=>{ keys.delete(key); };
+      el.addEventListener('mousedown', (e)=>{ e.preventDefault(); down(); });
+      el.addEventListener('mouseup', (e)=>{ e.preventDefault(); up(); });
+      el.addEventListener('mouseleave', (e)=>{ e.preventDefault(); up(); });
+      el.addEventListener('touchstart', (e)=>{ e.preventDefault(); down(); });
+      el.addEventListener('touchend', (e)=>{ e.preventDefault(); up(); });
+      el.addEventListener('touchcancel', (e)=>{ e.preventDefault(); up(); });
+    }
+    document.querySelectorAll('#pad .padbtn').forEach(btn=>{
+      bindPressButton(btn, btn.getAttribute('data-key'));
+    });
+    // passing removed
+
+    function getMoveVector(){
+      let vx=0, vy=0;
+      if(keys.has('ArrowLeft')||keys.has('a')||keys.has('A')) vx -= 1;
+      if(keys.has('ArrowRight')||keys.has('d')||keys.has('D')) vx += 1;
+      if(keys.has('ArrowUp')||keys.has('w')||keys.has('W')) vy -= 1;
+      if(keys.has('ArrowDown')||keys.has('s')||keys.has('S')) vy += 1;
+      const len = Math.hypot(vx,vy)||1; vx/=len; vy/=len;
+      return {vx,vy, sprint: keys.has('Shift')};
+    }
+
+    // passing removed
+
+    // passing removed
+
+    // kick removed
+
+    function predictTarget(){
+      // Aim at active receiver with slight lead towards mouse direction
+      const r = state.receivers[state.activeReceiver];
+      const mx = state.mouse.x, my = state.mouse.y;
+      const towardMouse = {x: r.x + (mx - r.x)*0.15, y: r.y + (my - r.y)*0.15};
+      // Lead if receiver moving
+      return {x: towardMouse.x + r.vx*PASS_LEAD, y: towardMouse.y + r.vy*PASS_LEAD};
+    }
+
+    // AI: defenders read intent (run vs pass) and react
+    function updateDefenders(){
+      const qb = state.qb;
+      const hasAir = state.hasBall==='air';
+      const intentRun = state.hasBall!=='air' && Math.hypot(qb.vx,qb.vy)>0.8; // moving with ball
+      const intentPass = state.hasBall==='qb' && !intentRun;
+
+      for(const d of state.defenders){
+        if(d.reactDelay==null){ d.reactDelay = Math.random()*(DEF_REACT_MAX_MS-DEF_REACT_MIN_MS)+DEF_REACT_MIN_MS; d.reactAccum=0; }
+        d.reactAccum += 16; // approx per frame
+        let reactNow = d.reactAccum >= d.reactDelay;
+        // Pursue current ball carrier directly with slight predictive lead
+        const cx = qb.x; const cy = qb.y;
+        let tx = cx, ty = cy;
+        if(reactNow){
+          tx = cx + state.qb.vx * 14; // small lead
+          ty = cy + state.qb.vy * 14;
+        }
+        // Add tiny lateral offset so they can surround from any side
+        tx += (d.offsetX || 0); ty += (d.offsetY || 0);
+        if(d.offsetX==null){ d.offsetX = (Math.random()*2-1)*20; d.offsetY = (Math.random()*2-1)*20; }
+
+        const dirx = clamp(tx - d.x, -1, 1);
+        const diry = clamp(ty - d.y, -1, 1);
+        const len = Math.hypot(dirx,diry)||1; const ux = dirx/len, uy = diry/len;
+        // Apple burst logic: every ~1s, apples can sprint at 3x for 1s
+        if(d.type==='apple'){
+          d.burstCooldown = (d.burstCooldown||0) - 16; d.burst = (d.burst||0) - 16;
+          if(d.burst<=0 && d.burstCooldown<=0){
+            if(Math.random() < 16/1000){ d.burst = 1000; d.burstCooldown = 1000; }
+          }
+        }
+        let burstMult = (d.type==='apple' && d.burst>0) ? 3.0 : 1.0;
+        let speed = (d.role==='rusher' ? DEF_SPEED*1.0 : DEF_SPEED*0.95) * (d.speedMult || 1.0) * burstMult;
+        const carrierX = (state.hasBall==='qb') ? qb.x : (typeof state.hasBall==='number' ? state.receivers[state.hasBall].x : qb.x);
+        const carrierY = (state.hasBall==='qb') ? qb.y : (typeof state.hasBall==='number' ? state.receivers[state.hasBall].y : qb.y);
+        const distToCarrier = Math.hypot(d.x - carrierX, d.y - carrierY);
+        if(!hasAir && distToCarrier < 160) speed *= 1.05;
+        // Smooth defender acceleration
+        d.vx += (ux*speed - d.vx) * DEF_ACCEL;
+        d.vy += (uy*speed - d.vy) * DEF_ACCEL;
+        d.x += d.vx; d.y += d.vy;
+        if(reactNow){ d.reactAccum = 0; d.reactDelay = Math.random()*(DEF_REACT_MAX_MS-DEF_REACT_MIN_MS)+DEF_REACT_MIN_MS; }
+      }
+    }
+
+    // Receivers simple routes
+    function updateReceivers(){
+      const snapPush = state.snapped ? 1 : 0;
+      for(const [i,r] of state.receivers.entries()){
+        if(!state.snapped){ r.vx=0; r.vy=0; continue; }
+        switch(r.route){
+          case 'slant': r.vx = 0.9*snapPush; r.vy = -1.2*snapPush; break;
+          case 'go': r.vx = 0; r.vy = -1.4*snapPush; break;
+          case 'out': r.vx = i%2? -1.0*snapPush : 1.0*snapPush; r.vy = -0.9*snapPush; break;
+        }
+        // Smooth receiver movement a bit
+        r.x = clamp(r.x + r.vx*0.9, 40, W-40);
+        r.y = clamp(r.y + r.vy*0.9, 30, H-30);
+      }
+    }
+
+    function updateQB(){
+      const m = getMoveVector();
+      let speed = BASE_SPEED * (m.sprint ? SPRINT_MULT : 1);
+      if(state.hasBall==='qb') speed *= CARRIER_MULT; // carrier bonus
+      state.sprint = m.sprint;
+      // Smooth acceleration
+      state.qb.vx += (m.vx * speed - state.qb.vx) * ACCEL;
+      state.qb.vy += (m.vy * speed - state.qb.vy) * ACCEL;
+      if(Math.hypot(m.vx, m.vy) > 0.01){ state.lastMoveDir = { x: m.vx, y: m.vy }; }
+      state.qb.x = clamp(state.qb.x + state.qb.vx, 40, W-40);
+      state.qb.y = clamp(state.qb.y + state.qb.vy, 30, H-30);
+      if(state.hasBall==='qb') placeBallOnQB();
+    }
+
+    function updateBall(){
+      if(state.hasBall==='air'){
+        state.ballPos.x += state.ballVel.x;
+        state.ballPos.y += state.ballVel.y;
+        let caughtBy = null; let bestDist = 9999;
+        for(const [i,r] of state.receivers.entries()){
+          const d = Math.hypot(r.x - state.ballPos.x, r.y - state.ballPos.y);
+          if(d < 18 && d < bestDist){ bestDist = d; caughtBy = i; }
+        }
+        if(caughtBy!==null){
+          state.hasBall = caughtBy; // receiver index
+          state.ballVel.x = state.ballVel.y = 0;
+        }
+        if(state.ballPos.x < 40 || state.ballPos.x > W-40 || state.ballPos.y < 20){
+          whistleDead('incomplete');
+        }
+      } else if(typeof state.hasBall==='number'){
+        const r = state.receivers[state.hasBall];
+        // Allow control of the receiver who caught the ball (carrier boost)
+        const m = getMoveVector();
+        const speed = BASE_SPEED * (m.sprint ? SPRINT_MULT : 1) * CARRIER_MULT;
+        r.vx = m.vx * speed; r.vy = m.vy * speed;
+        r.x = clamp(r.x + r.vx, 40, W-40);
+        r.y = clamp(r.y + r.vy, 30, H-30);
+        state.ballPos.x = r.x; state.ballPos.y = r.y-6;
+      }
+    }
+
+    function whistleDead(reason){
+      // End of play: spot ball and set next down/distance
+      const spotYards = yToYard(state.ballPos.y);
+      if(reason==='touchdown' || spotYards>=100){
+        state.scored = true;
+        state.playActive = false; state.snapped = false; state.gameOver = true;
+        playCrowdRoar();
+        showGameOver('Touchdown! Game Over');
+        return;
+      }
+      let gained = spotYards - state.lineOfScrimmageYard;
+      if(reason==='incomplete') gained = 0; // incomplete pass: no yardage
+      if(gained >= state.distance){
+        state.down = 1; state.distance = 10; state.ballOnYard = spotYards; resetPlay();
+      } else {
+        state.down += 1;
+        state.distance = Math.max(1, state.distance - Math.max(0, gained));
+        state.ballOnYard = Math.max(1, spotYards);
+        if(state.down>4){
+          state.playActive = false; state.snapped = false; state.gameOver = true;
+          showGameOver('No score in 4 tries. Game Over');
+        } else {
+          resetPlay();
+        }
+      }
+    }
+
+    function checkTackles(){
+      let carrier = null; let cx=0, cy=0;
+      if(state.hasBall==='qb'){ carrier = state.qb; cx = carrier.x; cy = carrier.y; }
+      else if(typeof state.hasBall==='number'){ const r = state.receivers[state.hasBall]; carrier = r; cx = r.x; cy = r.y; }
+      else return;
+      // Tackle only on visible overlap (strict contact)
+      for(const d of state.defenders){
+        if(distance(d,{x:cx,y:cy}) <= PLAYER_R + DEFENDER_R - CONTACT_PAD){
+          whistleDead('tackle'); return;
+        }
+      }
+      if(cy <= 30){ whistleDead('touchdown'); }
+    }
+
+    function distance(a,b){ return Math.hypot(a.x-b.x, a.y-b.y); }
+    function clamp(v,lo,hi){ return Math.max(lo, Math.min(hi, v)); }
+
+    // Render
+    function drawField(){
+      ctx.save();
+      ctx.globalAlpha = 1;
+      ctx.shadowColor = 'transparent';
+      ctx.filter = 'none';
+      ctx.clearRect(0,0,W,H);
+      // Turf stripes via CSS background already present; draw yard lines and numbers
+      ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+      ctx.fillStyle = 'rgba(255,255,255,0.9)';
+      ctx.lineWidth = 2;
+      for(let y=0;y<=FIELD_LEN_YARDS;y+=YARDS_PER_LINE){
+        const py = yardToY(y);
+        ctx.beginPath(); ctx.moveTo(40, py); ctx.lineTo(W-40, py); ctx.stroke();
+        if(y>0 && y<100){
+          ctx.font = '12px Arial Black'; ctx.textAlign='center'; ctx.textBaseline='middle';
+          ctx.fillText(String(y), 30, py);
+          ctx.fillText(String(100-y), W-30, py);
+        }
+      }
+      // Hash marks
+      ctx.lineWidth = 1;
+      for(let y=5; y<100; y+=1){
+        const py = yardToY(y);
+        ctx.beginPath(); ctx.moveTo(LEFT_HASH-10, py); ctx.lineTo(LEFT_HASH, py); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(RIGHT_HASH, py); ctx.lineTo(RIGHT_HASH+10, py); ctx.stroke();
+      }
+      // End zones with distinct color
+      ctx.fillStyle = 'rgba(96,165,250,0.20)';
+      ctx.fillRect(40, H-30, W-80, 30);
+      ctx.fillStyle = 'rgba(250,204,21,0.20)';
+      ctx.fillRect(40, 0, W-80, 30);
+      ctx.restore();
+    }
+
+    function drawPlayers(){
+      ctx.save();
+      ctx.globalAlpha = 1;
+      ctx.shadowColor = 'transparent';
+      ctx.filter = 'none';
+      // Attacking player as cute emoji runner holding a football
+      drawRunner(state.qb.x, state.qb.y);
+      // Defenders as fruit icons (larger and crisper)
+      for(const d of state.defenders){
+        const label = d.icon || '🛡️';
+        ctx.font = FRUIT_FONT_SIZE + 'px "Segoe UI Emoji", "Apple Color Emoji", Noto Color Emoji, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(label, d.x, d.y);
+      }
+      // Ball ellipse suppressed (shown via emoji on runner)
+      ctx.restore();
+    }
+
+    function drawCircle(x,y,r,color){ ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fillStyle=color; ctx.fill(); }
+    function drawRing(x,y,r,color){ ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.strokeStyle=color; ctx.lineWidth=2; ctx.stroke(); }
+    function drawEllipse(x,y,rx,ry){ ctx.save(); ctx.translate(x,y); ctx.scale(rx/ry,1); ctx.beginPath(); ctx.arc(0,0,ry,0,Math.PI*2); ctx.restore(); ctx.fill(); }
+    function drawRunner(x,y){
+      ctx.save();
+      ctx.globalAlpha = 1;
+      ctx.shadowColor = 'transparent';
+      ctx.filter = 'none';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      // Cute person emoji
+      ctx.font = '64px "Segoe UI Emoji", "Apple Color Emoji", Noto Color Emoji, sans-serif';
+      ctx.fillText('🧒', x, y - 6);
+      // Football emoji tucked to the right
+      ctx.font = '48px "Segoe UI Emoji", "Apple Color Emoji", Noto Color Emoji, sans-serif';
+      ctx.fillText('🏈', x + PLAYER_R, y - 4);
+      ctx.restore();
+    }
+
+    function tick(dt){
+      if(state.gameOver){
+        return;
+      }
+      if(state.playActive){
+        state.clockMs = Math.max(0, state.clockMs - dt);
+      }
+      if(state.snapped){
+        // Enforce max play duration (20s) to always end a down
+        if(state.playStartMs && performance.now() - state.playStartMs > 20000){ whistleDead('tackle'); return; }
+        updateQB();
+        updateReceivers();
+        updateDefenders();
+        updateBall();
+        checkTackles();
+      }
+    }
+
+    // Main loop
+    let last = performance.now();
+    function loop(now){
+      const dt = Math.min(50, now - last); last = now;
+      tick(dt);
+      drawField();
+      drawPlayers();
+      requestAnimationFrame(loop);
+    }
+
+    // Init: scale canvas for sharpness without shrinking CSS sizes
+    let FRUIT_FONT_SIZE = 58;
+    function resizeCanvas(){
+      const cssW = canvas.clientWidth;
+      const cssH = canvas.clientHeight;
+      canvas.width = Math.floor(cssW * DPR);
+      canvas.height = Math.floor(cssH * DPR);
+      ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+      W = cssW;
+      H = cssH;
+      PX_PER_YARD = (H - 60) / FIELD_LEN_YARDS;
+      LEFT_HASH = 80; RIGHT_HASH = W - 80;
+      // Mobile scaling: reduce fruit size 30% and increase carrier speed to 3x
+      const isMobile = cssW <= 820;
+      FRUIT_FONT_SIZE = isMobile ? Math.round(58 * 0.7) : 58;
+      DEFENDER_R = isMobile ? Math.round(22 * 0.7) : 22;
+      CARRIER_MULT = isMobile ? 3.0 : 1.8; // ensure 3x on mobile
+      ACCEL = isMobile ? 0.18 : 0.12; // slightly quicker acceleration on mobile
+    }
+    resizeCanvas();
+    window.addEventListener('resize', resizeCanvas);
+    resetPlay();
+    requestAnimationFrame(loop);
+
+    // Whistle and announcements
+    function playWhistle(){
+      try{
+        const ac = new (window.AudioContext||window.webkitAudioContext)();
+        const o = ac.createOscillator();
+        const g = ac.createGain();
+        o.type = 'sine';
+        o.frequency.setValueAtTime(800, ac.currentTime);
+        o.frequency.exponentialRampToValueAtTime(1600, ac.currentTime + 0.15);
+        o.frequency.exponentialRampToValueAtTime(900, ac.currentTime + 0.35);
+        g.gain.setValueAtTime(0.0001, ac.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.25, ac.currentTime + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + 0.45);
+        o.connect(g).connect(ac.destination);
+        o.start(); o.stop(ac.currentTime + 0.5);
+      }catch(_){/* ignore */}
+    }
+    function announceDown(){
+      const el = document.getElementById('announce');
+      el.textContent = `${ordinal(state.down)} & ${state.distance} on the ${state.ballOnYard}`;
+      el.style.display = 'block'; el.style.opacity = '1';
+      el.style.color = '#ff1a1a'; el.style.fontSize = '36px'; el.style.borderColor = 'rgba(255,26,26,.85)';
+      setTimeout(()=>{ el.style.transition='opacity .6s'; el.style.opacity='0'; setTimeout(()=>{ el.style.display='none'; el.style.transition=''; }, 700); }, 1800);
+    }
+
+    function playCrowdRoar(){
+      try{
+        const ac = new (window.AudioContext||window.webkitAudioContext)();
+        const len = 1.2;
+        const bufferSize = ac.sampleRate * len;
+        const buffer = ac.createBuffer(1, bufferSize, ac.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i=0;i<bufferSize;i++) { data[i] = (Math.random()*2-1) * (1 - i/bufferSize); }
+        const noise = ac.createBufferSource(); noise.buffer = buffer;
+        const filter = ac.createBiquadFilter(); filter.type='bandpass'; filter.frequency.value=600; filter.Q.value=0.7;
+        const gain = ac.createGain(); gain.gain.setValueAtTime(0.0001, ac.currentTime); gain.gain.exponentialRampToValueAtTime(0.6, ac.currentTime+0.05); gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime+len);
+        noise.connect(filter).connect(gain).connect(ac.destination);
+        noise.start(); noise.stop(ac.currentTime + len);
+      }catch(_){/* ignore */}
+    }
+
+    function showGameOver(msg){
+      const el = document.getElementById('announce');
+      el.textContent = msg;
+      el.style.display = 'block';
+      el.style.opacity = '1';
+      el.style.transition = '';
+    }
+  })();
+  </script>
+</body>
+</html>
+
+
