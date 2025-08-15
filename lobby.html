@@ -1,0 +1,464 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+  <title>Poker Lobby</title>
+  <style>
+    :root {
+      --bg: linear-gradient(135deg, #0f172a, #0b1220);
+      --panel: rgba(14,23,42,0.9);
+      --border: #334155;
+      --text: #e2e8f0;
+      --muted: #93c5fd;
+      --accent1: #60a5fa;
+      --accent2: #a78bfa;
+      --success: #10b981;
+      --warning: #f59e0b;
+    }
+    html, body {
+      height: 100%; margin: 0; font-family: 'Segoe UI', Arial, sans-serif;
+      background: var(--bg); color: var(--text);
+    }
+    .wrap { min-height: 100%; display: grid; grid-template-rows: auto 1fr auto; }
+    header {
+      display: flex; align-items: center; gap: 12px;
+      padding: calc(10px + env(safe-area-inset-top)) 16px 12px 16px;
+      background: var(--panel); backdrop-filter: blur(8px);
+      border-bottom: 1px solid var(--border);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    }
+    header h1 {
+      margin: 0; font-size: 20px; font-weight: 800;
+      background: linear-gradient(45deg, var(--accent1), var(--accent2));
+      -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .back-btn {
+      padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border);
+      background: rgba(15,23,42,0.6); color: var(--text);
+      text-decoration: none; font-weight: 600;
+      transition: all .2s;
+    }
+    .back-btn:hover { background: var(--border); }
+    main { padding: 20px; max-width: 800px; margin: 0 auto; }
+    .status {
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 12px; padding: 16px; margin-bottom: 20px;
+      text-align: center;
+    }
+    .status.waiting { border-color: var(--warning); }
+    .status.ready { border-color: var(--success); }
+    .player-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 12px; margin-bottom: 20px;
+    }
+    .player-card {
+      background: rgba(30, 41, 59, 0.8);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px;
+      display: flex; align-items: center; justify-content: space-between;
+      transition: all .2s;
+    }
+    .player-card:hover { border-color: var(--accent1); }
+    .player-info {
+      display: flex; align-items: center; gap: 10px;
+    }
+    .player-avatar {
+      width: 32px; height: 32px;
+      background: linear-gradient(45deg, var(--accent1), var(--accent2));
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 700; font-size: 14px;
+    }
+    .player-name { font-weight: 600; }
+    .player-status {
+      font-size: 12px; color: var(--muted);
+      padding: 2px 6px; border-radius: 4px;
+      background: rgba(15,23,42,0.6);
+    }
+    .challenge-btn {
+      padding: 6px 12px; border-radius: 6px; border: 1px solid var(--accent1);
+      background: rgba(96, 165, 250, 0.1); color: var(--accent1);
+      font-weight: 600; cursor: pointer;
+      transition: all .2s;
+    }
+    .challenge-btn:hover {
+      background: var(--accent1); color: var(--bg);
+    }
+    .challenge-btn:disabled {
+      opacity: 0.5; cursor: not-allowed;
+      border-color: var(--border); color: var(--muted);
+      background: rgba(15,23,42,0.3);
+    }
+    .name-form {
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 12px; padding: 20px; margin-bottom: 20px;
+    }
+    .form-group { margin-bottom: 16px; }
+    .form-group label { display: block; margin-bottom: 6px; font-weight: 600; }
+    .form-group input {
+      width: 100%; padding: 10px 12px; border-radius: 8px;
+      border: 1px solid var(--border); background: rgba(15,23,42,0.6);
+      color: var(--text); font-size: 16px;
+    }
+    .form-group input:focus {
+      outline: none; border-color: var(--accent1);
+      box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.2);
+    }
+    .join-btn {
+      padding: 12px 20px; border-radius: 8px; border: none;
+      background: linear-gradient(45deg, var(--accent1), var(--accent2));
+      color: white; font-weight: 700; cursor: pointer;
+      transition: all .2s; width: 100%;
+    }
+    .join-btn:hover { transform: translateY(-1px); }
+    .hidden { display: none; }
+    .modal {
+      position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center;
+      z-index: 1000;
+    }
+    .modal-content {
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 12px; padding: 24px; max-width: 400px; width: 90%;
+      text-align: center;
+    }
+    .modal-actions {
+      display: flex; gap: 12px; margin-top: 20px;
+      justify-content: center;
+    }
+    .modal-btn {
+      padding: 10px 16px; border-radius: 8px; border: 1px solid var(--border);
+      background: rgba(15,23,42,0.6); color: var(--text);
+      font-weight: 600; cursor: pointer;
+      transition: all .2s;
+    }
+    .modal-btn.primary {
+      background: var(--accent1); border-color: var(--accent1);
+      color: white;
+    }
+    .modal-btn:hover { opacity: 0.8; }
+    footer { padding: 12px; text-align: center; color: #94a3b8; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <a href="games.html" class="back-btn">← Back</a>
+      <h1>Poker Lobby</h1>
+    </header>
+    <main>
+      <div id="name-setup" class="name-form">
+        <h2>Join the Lobby</h2>
+        <div class="form-group">
+          <label for="player-name">Your Name</label>
+          <input type="text" id="player-name" placeholder="Enter your name" maxlength="20">
+        </div>
+        <button class="join-btn" onclick="joinLobby()">Join Lobby</button>
+      </div>
+
+      <div id="lobby-content" class="hidden">
+        <div id="status" class="status waiting">
+          <h3>Connecting to Lobby...</h3>
+          <p>Please wait while we connect you to the multiplayer server.</p>
+          <div>Players online: <span id="player-count">0</span>/10</div>
+        </div>
+
+        <div class="player-grid" id="player-grid">
+          <!-- Players will be populated here -->
+        </div>
+      </div>
+    </main>
+    <footer>
+      <p>Find an opponent and start your poker duel!</p>
+    </footer>
+  </div>
+
+  <!-- Challenge Modal -->
+  <div id="challenge-modal" class="modal hidden" style="display: none;">
+    <div class="modal-content">
+      <h3>Poker Challenge</h3>
+      <p id="challenge-text"></p>
+      <div class="modal-actions">
+        <button class="modal-btn" onclick="declineChallenge()">Decline</button>
+        <button class="modal-btn primary" onclick="acceptChallenge()">Accept</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let ws = null;
+    let playerName = '';
+    let playerId = '';
+    let currentChallenge = null;
+
+
+
+    function generatePlayerId() {
+      return 'player_' + Math.random().toString(36).substr(2, 9);
+    }
+
+    function joinLobby() {
+      const nameInput = document.getElementById('player-name');
+      const name = nameInput.value.trim();
+      
+      if (!name) {
+        alert('Please enter your name');
+        return;
+      }
+      
+      if (name.length > 20) {
+        alert('Name too long (max 20 characters)');
+        return;
+      }
+
+      playerName = name;
+      playerId = generatePlayerId();
+      
+      // Hide name form, show lobby
+      document.getElementById('name-setup').classList.add('hidden');
+      document.getElementById('lobby-content').classList.remove('hidden');
+      
+      // Connect to WebSocket
+      connectToLobby();
+    }
+
+    function connectToLobby() {
+      // Connect to Cloudflare Worker
+      const workerUrl = 'poker-multiplayer.xiachen.workers.dev';
+      const protocol = 'wss:';
+      const wsUrl = `${protocol}//${workerUrl}/lobby`;
+      
+      ws = new WebSocket(wsUrl);
+      
+      ws.onopen = function() {
+        console.log('Connected to lobby');
+        
+        // Update status
+        const statusEl = document.getElementById('status');
+        statusEl.innerHTML = `
+          <h3>Waiting Room</h3>
+          <p>Challenge another player to start a game. Maximum 10 players.</p>
+          <div>Players online: <span id="player-count">0</span>/10</div>
+        `;
+        statusEl.className = 'status waiting';
+        statusEl.style.borderColor = '';
+        statusEl.style.color = '';
+        
+        // Join lobby
+        ws.send(JSON.stringify({
+          type: 'join',
+          playerId: playerId,
+          playerName: playerName
+        }));
+      };
+      
+      ws.onmessage = function(event) {
+        try {
+          const data = JSON.parse(event.data);
+          handleMessage(data);
+        } catch (err) {
+          console.error('Error parsing WebSocket message:', err);
+        }
+      };
+      
+      ws.onclose = function(event) {
+        console.log('Disconnected from lobby', event.code, event.reason);
+        
+        // Show error message for failed connections
+        if (event.code !== 1000) { // Not a normal closure
+          showConnectionError();
+        }
+      };
+      
+      ws.onerror = function(error) {
+        console.error('WebSocket error:', error);
+        showConnectionError();
+      };
+    }
+    
+    function showConnectionError() {
+      const statusEl = document.getElementById('status');
+      statusEl.innerHTML = `
+        <h3>Connection Failed</h3>
+        <p>Unable to connect to the multiplayer server. Please check your internet connection and try again.</p>
+        <p>If the problem persists, you can still enjoy the <strong>🤖 vs Bot</strong> poker game!</p>
+        <button onclick="window.location.href='poker.html'" style="margin: 10px 5px 0 0; padding: 8px 16px; border-radius: 6px; border: 1px solid #10b981; background: #10b981; color: white; cursor: pointer;">Play vs Bot</button>
+        <button onclick="window.location.href='games.html'" style="margin: 10px 0 0 5px; padding: 8px 16px; border-radius: 6px; border: 1px solid #60a5fa; background: #60a5fa; color: white; cursor: pointer;">Back to Games</button>
+        <button onclick="connectToLobby()" style="margin: 10px 0 0 5px; padding: 8px 16px; border-radius: 6px; border: 1px solid #f59e0b; background: #f59e0b; color: white; cursor: pointer;">Retry Connection</button>
+      `;
+      statusEl.className = 'status';
+      statusEl.style.borderColor = '#ef4444';
+      statusEl.style.color = '#fecaca';
+    }
+
+    function handleMessage(data) {
+      switch(data.type) {
+        case 'lobby_update':
+          updatePlayerList(data.players);
+          break;
+        case 'challenge_received':
+          showChallengeModal(data.from, data.challengeId);
+          break;
+        case 'challenge_accepted':
+          startGame(data.gameId, data.opponent);
+          break;
+        case 'challenge_declined':
+          alert(`${data.from} declined your challenge`);
+          break;
+        case 'error':
+          alert(data.message);
+          break;
+      }
+    }
+
+    function updatePlayerList(players) {
+      const grid = document.getElementById('player-grid');
+      const count = document.getElementById('player-count');
+      
+      count.textContent = players.length;
+      grid.innerHTML = '';
+      
+      players.forEach(player => {
+        if (player.id === playerId) return; // Don't show self
+        
+        const card = document.createElement('div');
+        card.className = 'player-card';
+        
+        const initial = player.name.charAt(0).toUpperCase();
+        const isAvailable = player.status === 'available';
+        
+        card.innerHTML = `
+          <div class="player-info">
+            <div class="player-avatar">${initial}</div>
+            <div>
+              <div class="player-name">${player.name}</div>
+              <div class="player-status">${player.status}</div>
+            </div>
+          </div>
+          <button class="challenge-btn" 
+                  ${!isAvailable ? 'disabled' : ''} 
+                  onclick="challengePlayer('${player.id}', '${player.name}')">
+            ${isAvailable ? 'Challenge' : 'Busy'}
+          </button>
+        `;
+        
+        grid.appendChild(card);
+      });
+    }
+
+    function challengePlayer(targetId, targetName) {
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        alert('Connection lost. Reconnecting...');
+        return;
+      }
+      
+      ws.send(JSON.stringify({
+        type: 'challenge',
+        targetId: targetId,
+        challengerId: playerId,
+        challengerName: playerName
+      }));
+      
+      alert(`Challenge sent to ${targetName}!`);
+    }
+
+    function showChallengeModal(fromName, challengeId) {
+      if (!fromName || !challengeId) {
+        console.error('Invalid challenge data:', { fromName, challengeId });
+        return;
+      }
+      
+      currentChallenge = challengeId;
+      document.getElementById('challenge-text').textContent = 
+        `${fromName} wants to play poker with you!`;
+      
+      const modal = document.getElementById('challenge-modal');
+      modal.classList.remove('hidden');
+      modal.style.display = 'flex'; // Ensure it's visible
+      
+      // Add a visual/audio notification
+      if (document.hidden) {
+        document.title = `🎮 Challenge from ${fromName}!`;
+      }
+    }
+
+    function acceptChallenge() {
+      if (!currentChallenge || !ws) return;
+      
+      ws.send(JSON.stringify({
+        type: 'challenge_response',
+        challengeId: currentChallenge,
+        response: 'accept'
+      }));
+      
+      hideModal();
+    }
+
+    function declineChallenge() {
+      if (!currentChallenge || !ws) return;
+      
+      ws.send(JSON.stringify({
+        type: 'challenge_response',
+        challengeId: currentChallenge,
+        response: 'decline'
+      }));
+      
+      hideModal();
+    }
+    
+    function hideModal() {
+      const modal = document.getElementById('challenge-modal');
+      modal.classList.add('hidden');
+      modal.style.display = 'none';
+      currentChallenge = null;
+      
+      // Reset title if it was changed
+      document.title = 'Poker Lobby';
+    }
+
+    function startGame(gameId, opponent) {
+      // Redirect to poker game with multiplayer mode and opponent info
+      const opponentName = opponent ? opponent.name : 'Opponent';
+      window.location.href = `poker.html?mode=multiplayer&gameId=${gameId}&playerId=${playerId}&playerName=${encodeURIComponent(playerName)}&opponentName=${encodeURIComponent(opponentName)}`;
+    }
+
+    // Ensure modal is hidden on page load
+    document.addEventListener('DOMContentLoaded', function() {
+      const modal = document.getElementById('challenge-modal');
+      modal.classList.add('hidden');
+      modal.style.display = 'none';
+    });
+    
+    // Close modal when clicking outside
+    document.getElementById('challenge-modal').addEventListener('click', function(e) {
+      if (e.target === this) {
+        declineChallenge();
+      }
+    });
+
+    // Handle page unload
+    window.addEventListener('beforeunload', function() {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+          type: 'leave',
+          playerId: playerId
+        }));
+      }
+    });
+  </script>
+  
+  <!-- Immediate modal hide script -->
+  <script>
+    // Force hide modal immediately on any page load
+    (function() {
+      const modal = document.getElementById('challenge-modal');
+      if (modal) {
+        modal.style.display = 'none';
+        modal.classList.add('hidden');
+      }
+    })();
+  </script>
+</body>
+</html>

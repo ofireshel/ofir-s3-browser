@@ -4,6 +4,7 @@ const path = require('path');
 const url = require('url');
 const util = require('util');
 const os = require('os');
+const crypto = require('crypto');
 
 // Configuration
 const CONFIG = {
@@ -332,8 +333,504 @@ async function handleRequest(req, res) {
   }
 }
 
+// Lobby management
+const lobby = {
+  players: new Map(), // playerId -> { id, name, status, ws, lastSeen }
+  challenges: new Map(), // challengeId -> { from, to, gameId }
+  games: new Map() // gameId -> { players: [id1, id2], state }
+};
+
+// WebSocket handling
+function handleWebSocket(req, socket, head) {
+  const parsedUrl = url.parse(req.url);
+  
+  if (parsedUrl.pathname === '/lobby') {
+    // Simple WebSocket upgrade
+    const key = req.headers['sec-websocket-key'];
+    const acceptKey = crypto
+      .createHash('sha1')
+      .update(key + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11')
+      .digest('base64');
+    
+    socket.write(
+      'HTTP/1.1 101 Switching Protocols\r\n' +
+      'Upgrade: websocket\r\n' +
+      'Connection: Upgrade\r\n' +
+      `Sec-WebSocket-Accept: ${acceptKey}\r\n` +
+      '\r\n'
+    );
+    
+    const ws = {
+      socket: socket,
+      send: function(data) {
+        if (socket.readyState === 1) { // OPEN
+          const message = JSON.stringify(data);
+          const buffer = Buffer.from(message, 'utf8');
+          const frame = Buffer.allocUnsafe(2 + buffer.length);
+          frame[0] = 0x81; // FIN + text frame
+          frame[1] = buffer.length; // payload length (assuming < 126 bytes)
+          buffer.copy(frame, 2);
+          socket.write(frame);
+        }
+      },
+      close: function() {
+        socket.end();
+      }
+    };
+    
+    socket.on('data', (buffer) => {
+      try {
+        // Simple frame parsing (assuming small messages)
+        if (buffer.length < 6) return;
+        const payloadLength = buffer[1] & 0x7F;
+        const maskKey = buffer.slice(2, 6);
+        const payload = buffer.slice(6, 6 + payloadLength);
+        
+        // Unmask payload
+        for (let i = 0; i < payload.length; i++) {
+          payload[i] ^= maskKey[i % 4];
+        }
+        
+        const message = JSON.parse(payload.toString('utf8'));
+        handleLobbyMessage(ws, message);
+      } catch (err) {
+        logger.error('WebSocket message error:', err.message);
+      }
+    });
+    
+    socket.on('close', () => {
+      // Remove player from lobby
+      for (const [playerId, player] of lobby.players) {
+        if (player.ws === ws) {
+          lobby.players.delete(playerId);
+          broadcastLobbyUpdate();
+          break;
+        }
+      }
+    });
+    
+    socket.on('error', (err) => {
+      logger.error('WebSocket error:', err.message);
+    });
+  } else if (parsedUrl.pathname.startsWith('/game/')) {
+    // Game WebSocket connection
+    const gameId = parsedUrl.pathname.split('/')[2];
+    if (!gameId || !lobby.games.has(gameId)) {
+      socket.write('HTTP/1.1 404 Not Found\r\n\r\n');
+      socket.end();
+      return;
+    }
+    
+    // WebSocket upgrade for game
+    const key = req.headers['sec-websocket-key'];
+    const acceptKey = crypto
+      .createHash('sha1')
+      .update(key + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11')
+      .digest('base64');
+    
+    socket.write(
+      'HTTP/1.1 101 Switching Protocols\r\n' +
+      'Upgrade: websocket\r\n' +
+      'Connection: Upgrade\r\n' +
+      `Sec-WebSocket-Accept: ${acceptKey}\r\n` +
+      '\r\n'
+    );
+    
+    const gameWs = {
+      socket: socket,
+      gameId: gameId,
+      playerId: null,
+      send: function(data) {
+        if (socket.readyState === 1) {
+          const message = JSON.stringify(data);
+          const buffer = Buffer.from(message, 'utf8');
+          const frame = Buffer.allocUnsafe(2 + buffer.length);
+          frame[0] = 0x81;
+          frame[1] = buffer.length;
+          buffer.copy(frame, 2);
+          socket.write(frame);
+        }
+      }
+    };
+    
+    socket.on('data', (buffer) => {
+      try {
+        if (buffer.length < 6) return;
+        const payloadLength = buffer[1] & 0x7F;
+        const maskKey = buffer.slice(2, 6);
+        const payload = buffer.slice(6, 6 + payloadLength);
+        
+        for (let i = 0; i < payload.length; i++) {
+          payload[i] ^= maskKey[i % 4];
+        }
+        
+        const message = JSON.parse(payload.toString('utf8'));
+        handleGameMessage(gameWs, message);
+      } catch (err) {
+        logger.error('Game WebSocket message error:', err.message);
+      }
+    });
+    
+    socket.on('close', () => {
+      handleGameDisconnect(gameWs);
+    });
+    
+    socket.on('error', (err) => {
+      logger.error('Game WebSocket error:', err.message);
+    });
+  }
+}
+
+function handleLobbyMessage(ws, message) {
+  try {
+    switch (message.type) {
+      case 'join':
+        handlePlayerJoin(ws, message);
+        break;
+      case 'leave':
+        handlePlayerLeave(ws, message);
+        break;
+      case 'challenge':
+        handleChallenge(ws, message);
+        break;
+      case 'challenge_response':
+        handleChallengeResponse(ws, message);
+        break;
+      default:
+        logger.warn('Unknown message type:', message.type);
+    }
+  } catch (err) {
+    logger.error('Error handling lobby message:', err.message);
+    ws.send({ type: 'error', message: 'Server error' });
+  }
+}
+
+function handlePlayerJoin(ws, message) {
+  const { playerId, playerName } = message;
+  
+  if (!playerId || !playerName || playerName.length > 20) {
+    ws.send({ type: 'error', message: 'Invalid player data' });
+    return;
+  }
+  
+  // Check lobby capacity
+  if (lobby.players.size >= 10) {
+    ws.send({ type: 'error', message: 'Lobby is full (max 10 players)' });
+    return;
+  }
+  
+  // Check name conflicts
+  for (const player of lobby.players.values()) {
+    if (player.name === playerName) {
+      ws.send({ type: 'error', message: 'Name already taken' });
+      return;
+    }
+  }
+  
+  // Add player to lobby
+  lobby.players.set(playerId, {
+    id: playerId,
+    name: playerName,
+    status: 'available',
+    ws: ws,
+    lastSeen: Date.now()
+  });
+  
+  logger.info(`Player joined lobby: ${playerName} (${playerId})`);
+  broadcastLobbyUpdate();
+}
+
+function handlePlayerLeave(ws, message) {
+  const { playerId } = message;
+  if (lobby.players.has(playerId)) {
+    const player = lobby.players.get(playerId);
+    lobby.players.delete(playerId);
+    logger.info(`Player left lobby: ${player.name} (${playerId})`);
+    broadcastLobbyUpdate();
+  }
+}
+
+function handleChallenge(ws, message) {
+  const { targetId, challengerId, challengerName } = message;
+  
+  const target = lobby.players.get(targetId);
+  const challenger = lobby.players.get(challengerId);
+  
+  if (!target || !challenger) {
+    ws.send({ type: 'error', message: 'Player not found' });
+    return;
+  }
+  
+  if (target.status !== 'available' || challenger.status !== 'available') {
+    ws.send({ type: 'error', message: 'Player is not available' });
+    return;
+  }
+  
+  // Create challenge
+  const challengeId = crypto.randomUUID();
+  const gameId = crypto.randomUUID();
+  
+  lobby.challenges.set(challengeId, {
+    from: challengerId,
+    to: targetId,
+    gameId: gameId,
+    timestamp: Date.now()
+  });
+  
+  // Mark players as busy
+  challenger.status = 'challenging';
+  target.status = 'challenged';
+  
+  // Send challenge to target
+  target.ws.send({
+    type: 'challenge_received',
+    from: challengerName,
+    challengeId: challengeId
+  });
+  
+  broadcastLobbyUpdate();
+  
+  // Auto-expire challenge after 30 seconds
+  setTimeout(() => {
+    if (lobby.challenges.has(challengeId)) {
+      const challenge = lobby.challenges.get(challengeId);
+      lobby.challenges.delete(challengeId);
+      
+      const challengerPlayer = lobby.players.get(challenge.from);
+      const targetPlayer = lobby.players.get(challenge.to);
+      
+      if (challengerPlayer) challengerPlayer.status = 'available';
+      if (targetPlayer) targetPlayer.status = 'available';
+      
+      broadcastLobbyUpdate();
+    }
+  }, 30000);
+}
+
+function handleChallengeResponse(ws, message) {
+  const { challengeId, response } = message;
+  
+  const challenge = lobby.challenges.get(challengeId);
+  if (!challenge) {
+    ws.send({ type: 'error', message: 'Challenge not found' });
+    return;
+  }
+  
+  const challenger = lobby.players.get(challenge.from);
+  const target = lobby.players.get(challenge.to);
+  
+  if (!challenger || !target) {
+    ws.send({ type: 'error', message: 'Player not found' });
+    return;
+  }
+  
+  lobby.challenges.delete(challengeId);
+  
+  if (response === 'accept') {
+    // Create game
+    lobby.games.set(challenge.gameId, {
+      players: [challenge.from, challenge.to],
+      state: 'starting',
+      createdAt: Date.now()
+    });
+    
+    // Mark players as in-game
+    challenger.status = 'in_game';
+    target.status = 'in_game';
+    
+    // Notify both players
+    challenger.ws.send({
+      type: 'challenge_accepted',
+      gameId: challenge.gameId
+    });
+    
+    target.ws.send({
+      type: 'challenge_accepted',
+      gameId: challenge.gameId
+    });
+    
+    logger.info(`Game started: ${challenger.name} vs ${target.name} (${challenge.gameId})`);
+  } else {
+    // Challenge declined
+    challenger.status = 'available';
+    target.status = 'available';
+    
+    challenger.ws.send({
+      type: 'challenge_declined',
+      from: target.name
+    });
+    
+    logger.info(`Challenge declined: ${target.name} declined ${challenger.name}`);
+  }
+  
+  broadcastLobbyUpdate();
+}
+
+function broadcastLobbyUpdate() {
+  const playerList = Array.from(lobby.players.values()).map(p => ({
+    id: p.id,
+    name: p.name,
+    status: p.status
+  }));
+  
+  const update = {
+    type: 'lobby_update',
+    players: playerList
+  };
+  
+  for (const player of lobby.players.values()) {
+    player.ws.send(update);
+  }
+}
+
+// Game WebSocket handlers
+function handleGameMessage(gameWs, message) {
+  try {
+    switch (message.type) {
+      case 'join_game':
+        handleJoinGame(gameWs, message);
+        break;
+      case 'player_action':
+        handlePlayerAction(gameWs, message);
+        break;
+      default:
+        logger.warn('Unknown game message type:', message.type);
+    }
+  } catch (err) {
+    logger.error('Error handling game message:', err.message);
+    gameWs.send({ type: 'error', message: 'Server error' });
+  }
+}
+
+function handleJoinGame(gameWs, message) {
+  const { gameId, playerId, playerName } = message;
+  
+  const game = lobby.games.get(gameId);
+  if (!game) {
+    gameWs.send({ type: 'error', message: 'Game not found' });
+    return;
+  }
+  
+  if (!game.players.includes(playerId)) {
+    gameWs.send({ type: 'error', message: 'Not authorized for this game' });
+    return;
+  }
+  
+  // Set up game connection
+  gameWs.playerId = playerId;
+  gameWs.playerName = playerName;
+  
+  if (!game.connections) {
+    game.connections = new Map();
+  }
+  game.connections.set(playerId, gameWs);
+  
+  // Send initial game state
+  gameWs.send({
+    type: 'game_state',
+    state: game.gameState || null,
+    opponent: getOpponentInfo(game, playerId)
+  });
+  
+  // If both players connected, start the game
+  if (game.connections.size === 2) {
+    initializeGame(game);
+  }
+  
+  logger.info(`Player ${playerName} joined game ${gameId}`);
+}
+
+function handlePlayerAction(gameWs, message) {
+  const { gameId, playerId, action } = message;
+  
+  const game = lobby.games.get(gameId);
+  if (!game || !game.connections.has(playerId)) {
+    gameWs.send({ type: 'error', message: 'Invalid game or player' });
+    return;
+  }
+  
+  // Broadcast action to opponent
+  for (const [pid, ws] of game.connections) {
+    if (pid !== playerId) {
+      ws.send({
+        type: 'opponent_action',
+        action: action
+      });
+      break;
+    }
+  }
+  
+  logger.info(`Player ${playerId} action in game ${gameId}:`, action.type);
+}
+
+function handleGameDisconnect(gameWs) {
+  if (!gameWs.gameId || !gameWs.playerId) return;
+  
+  const game = lobby.games.get(gameWs.gameId);
+  if (!game || !game.connections) return;
+  
+  game.connections.delete(gameWs.playerId);
+  
+  // Notify remaining player
+  for (const ws of game.connections.values()) {
+    ws.send({
+      type: 'game_ended',
+      reason: 'Opponent disconnected'
+    });
+  }
+  
+  // Clean up game
+  lobby.games.delete(gameWs.gameId);
+  
+  // Update lobby player status
+  const lobbyPlayer = lobby.players.get(gameWs.playerId);
+  if (lobbyPlayer) {
+    lobbyPlayer.status = 'available';
+    broadcastLobbyUpdate();
+  }
+  
+  logger.info(`Player ${gameWs.playerId} disconnected from game ${gameWs.gameId}`);
+}
+
+function getOpponentInfo(game, playerId) {
+  const opponentId = game.players.find(pid => pid !== playerId);
+  const lobbyPlayer = lobby.players.get(opponentId);
+  
+  return {
+    id: opponentId,
+    name: lobbyPlayer ? lobbyPlayer.name : 'Opponent'
+  };
+}
+
+function initializeGame(game) {
+  // Basic game initialization
+  game.gameState = {
+    dealer: 0,
+    players: [
+      { stack: 1000, folded: false },
+      { stack: 1000, folded: false }
+    ],
+    pot: 0,
+    street: 'preflop',
+    toAct: 0
+  };
+  
+  // Notify both players
+  for (const ws of game.connections.values()) {
+    ws.send({
+      type: 'game_state',
+      state: game.gameState
+    });
+  }
+  
+  logger.info(`Game ${game.gameId} initialized`);
+}
+
 // Create server
 const server = http.createServer(handleRequest);
+
+// Add WebSocket upgrade handling
+server.on('upgrade', handleWebSocket);
 
 // Set request timeout
 server.timeout = CONFIG.requestTimeout;

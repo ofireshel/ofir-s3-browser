@@ -77,6 +77,40 @@
   (function(){
     'use strict';
     const yrEl = document.getElementById('yr'); if(yrEl) yrEl.textContent = new Date().getFullYear();
+    
+    // Multiplayer setup
+    const urlParams = new URLSearchParams(window.location.search);
+    // Only treat as multiplayer when mandatory params exist; otherwise run single-player
+    const isMultiplayer = urlParams.get('mode') === 'multiplayer' && !!urlParams.get('gameId') && !!urlParams.get('playerId');
+    const gameId = urlParams.get('gameId');
+    const myPlayerId = urlParams.get('playerId');
+    const myPlayerName = urlParams.get('playerName');
+    let gameWs = null;
+    let opponentName = urlParams.get('opponentName') || 'Opponent';
+    let assignedPlayerId = null; // Will be set by server
+    let heartbeatInterval = null; // For keeping Worker alive
+    
+    // Initialize multiplayer connection
+    if (isMultiplayer && gameId && myPlayerId) {
+      console.log('Initializing multiplayer mode:', {
+        gameId,
+        myPlayerId,
+        myPlayerName,
+        opponentName
+      });
+      initMultiplayer();
+    } else {
+      console.log('Starting single-player mode');
+      // Start single-player AI watchdog to ensure the bot acts when it's their turn
+      try { if (window.__aiWatchdog) clearInterval(window.__aiWatchdog); } catch {}
+      window.__aiWatchdog = setInterval(() => {
+        try {
+          if (!isMultiplayer && state && state.toAct===1 && !state.animating && state.street!=='showdown') {
+            scheduleAI(0);
+          }
+        } catch {}
+      }, 400);
+    }
     // Canvas setup
     const canvas = document.getElementById('table');
     const ctx = canvas.getContext('2d', { alpha:false, desynchronized:true });
@@ -212,8 +246,8 @@
       handId: 0,
       dealer: secureRandomBool() ? 0 : 1, // 0 human, 1 ai
       players: [
-        { name: HUMAN_NAME, stack: START_STACK, hole: [], folded:false, isAI:false },
-        { name: AI_NAME,    stack: START_STACK, hole: [], folded:false, isAI:true }
+        { name: isMultiplayer ? (decodeURIComponent(myPlayerName) || 'You') : HUMAN_NAME, stack: START_STACK, hole: [], folded:false, isAI:false },
+        { name: isMultiplayer ? (decodeURIComponent(opponentName) || 'Opponent') : AI_NAME, stack: START_STACK, hole: [], folded:false, isAI:!isMultiplayer }
       ],
       deck: [], board: [],
       pot: 0,
@@ -410,24 +444,27 @@
     function drawChipColumn(px, py, color, count){
       const gap = 3.2*DPR; for(let i=0;i<count;i++){ drawChipDisc(px, py - i*gap, color); }
     }
-function drawChipBank(anchorX, anchorY, amount){
+function drawChipBank(anchorX, anchorY, amount, labelY){
       const cols = buildChipColumns(amount);
       const step = (isSmallScreen()? 18:24)*DPR; // horizontal spacing
       const totalWidth = Math.max(1, cols.length) * step;
       let x = anchorX; // start near cards and move leftwards
+      const bankYOffset = (isSmallScreen()? 16:18) * DPR;
       for(let i=0;i<cols.length;i++){
-        const c = cols[i]; drawChipColumn(x, anchorY+18*DPR, c.color, c.count); x -= step;
+        const c = cols[i]; drawChipColumn(x, anchorY + bankYOffset, c.color, c.count); x -= step;
       }
       // label centered above the chip bank
       const centerX = anchorX - ((cols.length-1)*step)/2;
-      ctx.save(); ctx.fillStyle='#e2e8f0'; ctx.textAlign='center'; ctx.textBaseline='bottom'; ctx.font = `${18*DPR}px Arial Black`; ctx.fillText(String(amount), centerX, anchorY-8*DPR); ctx.restore();
+      const labelPosY = (typeof labelY === 'number') ? labelY : (anchorY - (isSmallScreen()? 30:14)*DPR);
+      ctx.save(); ctx.fillStyle='#e2e8f0'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.font = `${(isSmallScreen()?20:18)*DPR}px Arial Black`; ctx.fillText(String(amount), centerX, labelPosY); ctx.restore();
     }
 
     // Large bet indicator to the right of hole cards
-function drawBetIndicator(anchorX, anchorY, amount){
+function drawBetIndicator(anchorX, anchorY, amount, labelY){
       if(!amount || amount<=0) return;
-      let x = anchorX + (isSmallScreen()? 104:190)*DPR;
-      const y = anchorY;
+      let x = anchorX + (isSmallScreen()? 84:190)*DPR;
+      const bankYOffset = (isSmallScreen()? 16:18) * DPR;
+      const y = anchorY + bankYOffset;
       // clamp to screen
       const maxX = canvas.width - 16*DPR;
       if(x > maxX) x = maxX;
@@ -438,12 +475,41 @@ function drawBetIndicator(anchorX, anchorY, amount){
         const col = palette[i % palette.length] || '#cbd5e1';
         drawChipDisc(x + (i%2)*4*DPR, y - i*4*DPR, col);
       }
-      // big amount text
-      ctx.save(); ctx.fillStyle='#f8fafc'; ctx.textAlign='left'; ctx.textBaseline='middle'; ctx.font = `${(isSmallScreen()?18:22)*DPR}px Arial Black`;
-      ctx.fillText(String(amount), Math.min(x + 26*DPR, canvas.width - 4*DPR), y - 8*DPR);
+      // big amount text centered above the mini stack
+      const textY = (typeof labelY === 'number') ? labelY : (y - (isSmallScreen()? 28:16)*DPR);
+      // Center label over the mini stack (nudge slightly left)
+      const stackCenterX = x + 2*DPR;
+      const textX = Math.min(stackCenterX, canvas.width - 16*DPR);
+      ctx.save(); ctx.fillStyle='#f8fafc'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.font = `${(isSmallScreen()?22:22)*DPR}px Arial Black`;
+      ctx.fillText(String(amount), textX, textY);
       ctx.restore();
     }
-    function drawDealerButton(x,y){ ctx.save(); ctx.translate(x,y); ctx.fillStyle='#e5e7eb'; ctx.strokeStyle='#111827'; ctx.lineWidth=2*DPR; ctx.beginPath(); ctx.arc(0,0, 10*DPR, 0, Math.PI*2); ctx.fill(); ctx.stroke(); ctx.fillStyle='#111827'; ctx.font = `${10*DPR}px Arial Black`; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('D',0,1); ctx.restore(); }
+    function drawDealerButton(x,y){
+      ctx.save();
+      ctx.translate(x,y);
+      const R = 14*DPR;
+      // Outer shadow
+      ctx.shadowColor = 'rgba(0,0,0,0.35)';
+      ctx.shadowBlur = 6*DPR;
+      // Gradient fill
+      const grad = ctx.createRadialGradient(-R*0.4, -R*0.4, R*0.4, 0, 0, R);
+      grad.addColorStop(0, '#f3f4f6');
+      grad.addColorStop(1, '#d1d5db');
+      ctx.beginPath(); ctx.arc(0,0, R, 0, Math.PI*2);
+      ctx.fillStyle = grad; ctx.fill();
+      // Outer ring
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle='#111827'; ctx.lineWidth=2.2*DPR; ctx.stroke();
+      // Inner ring
+      ctx.beginPath(); ctx.arc(0,0, R-4*DPR, 0, Math.PI*2);
+      ctx.strokeStyle='#6b7280'; ctx.lineWidth=1.4*DPR; ctx.stroke();
+      // Letter D
+      ctx.fillStyle='#111827';
+      ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.font = `${12*DPR}px Arial Black`;
+      ctx.fillText('D', 0, 0);
+      ctx.restore();
+    }
     // Suit colors: hearts/diamonds red, spades black, clubs dark green
     function suitColor(s){
       if(s===1 || s===2) return '#ef4444'; // hearts, diamonds
@@ -530,16 +596,40 @@ function positions(){
       drawTable();
       const p=positions();
       ctx.fillStyle='#e2e8f0'; ctx.textAlign='center'; ctx.textBaseline='middle';
-      ctx.font = `${(isSmallScreen()?12:14)*DPR}px Segoe UI`;
-      ctx.fillText(`${state.players[0].name}`, p.human.name[0], p.human.name[1]);
-      ctx.fillText(`${state.players[1].name}`, p.ai.name[0], p.ai.name[1]);
+      ctx.font = `${(isSmallScreen()?16:14)*DPR}px Segoe UI`;
+      // In multiplayer, show player names from their own perspective
+      if (isMultiplayer) {
+        const myId = getMyId();
+        const opponentId = 1 - myId;
+        const myName = decodeURIComponent(myPlayerName) || 'You';
+        const oppName = decodeURIComponent(opponentName) || 'Opponent';
+        
+        // Always show "my name" in human position (bottom) and opponent in AI position (top)
+        ctx.fillText(myName, p.human.name[0], p.human.name[1]);
+        ctx.fillText(oppName, p.ai.name[0], p.ai.name[1]);
+      } else {
+        // Single player mode
+        ctx.fillText(`${state.players[0].name}`, p.human.name[0], p.human.name[1]);
+        ctx.fillText(`${state.players[1].name}`, p.ai.name[0], p.ai.name[1]);
+      }
       // Big chip stacks below names
-      // Total chip stacks (left of each player's cards); tighter on small screens
-      drawChipBank(p.human.cards[0] - (isSmallScreen()? 84:110)*DPR, p.human.cards[1], state.players[0].stack);
-      drawChipBank(p.ai.cards[0] - (isSmallScreen()? 90:120)*DPR, p.ai.cards[1], state.players[1].stack);
+      // Total chip stacks (left of each player's cards); tighter on small screens and align labels with bet amounts
+      const alignYHuman = isSmallScreen()? (p.human.cards[1] - 36*DPR) : undefined;
+      const alignYAI = isSmallScreen()? (p.ai.cards[1] - 36*DPR) : undefined;
+      if (isMultiplayer) {
+        const myId = getMyId();
+        const opponentId = 1 - myId;
+        // Show my stack in human position, opponent stack in AI position
+        drawChipBank(p.human.cards[0] - (isSmallScreen()? 64:110)*DPR, p.human.cards[1], state.players[myId].stack, alignYHuman);
+        drawChipBank(p.ai.cards[0] - (isSmallScreen()? 70:120)*DPR, p.ai.cards[1], state.players[opponentId].stack, alignYAI);
+      } else {
+        // Single player mode: original logic
+        drawChipBank(p.human.cards[0] - (isSmallScreen()? 64:110)*DPR, p.human.cards[1], state.players[0].stack, alignYHuman);
+        drawChipBank(p.ai.cards[0] - (isSmallScreen()? 70:120)*DPR, p.ai.cards[1], state.players[1].stack, alignYAI);
+      }
       // Dealer button next to player's name
       const dn = state.dealer===0 ? p.human.name : p.ai.name;
-      const dpos = state.dealer===0 ? [dn[0]-58*DPR, dn[1]] : [dn[0]-58*DPR, dn[1]];
+      const dpos = state.dealer===0 ? [dn[0]-(isSmallScreen()? 78:62)*DPR, dn[1]] : [dn[0]-(isSmallScreen()? 78:62)*DPR, dn[1]];
       drawDealerButton(dpos[0], dpos[1]);
       ctx.fillStyle='#fbbf24'; ctx.font = `${18*DPR}px Arial Black`; ctx.fillText(`Pot: ${state.pot}`, p.pot[0], p.pot[1]);
       for(let i=0;i<5;i++){
@@ -547,13 +637,46 @@ function positions(){
         const show = i < state.revealed.board;
         drawCard(x,y, c||{r:14,s:0}, show);
       }
-      drawBetIndicator(p.human.cards[2], p.human.cards[3], state.betThisRound[0]||0);
-      drawBetIndicator(p.ai.cards[2], p.ai.cards[3], state.betThisRound[1]||0);
+      if (isMultiplayer) {
+        const myId = getMyId();
+        const opponentId = 1 - myId;
+        // Show my bet in human position, opponent bet in AI position
+        drawBetIndicator(p.human.cards[2], p.human.cards[3], state.betThisRound[myId]||0, alignYHuman);
+        drawBetIndicator(p.ai.cards[2], p.ai.cards[3], state.betThisRound[opponentId]||0, alignYAI);
+      } else {
+        // Single player mode: original logic
+        drawBetIndicator(p.human.cards[2], p.human.cards[3], state.betThisRound[0]||0, alignYHuman);
+        drawBetIndicator(p.ai.cards[2], p.ai.cards[3], state.betThisRound[1]||0, alignYAI);
+      }
       const h0 = state.players[0].hole, h1 = state.players[1].hole;
-      if(state.revealed.human>=1 && h0[0]) drawCard(p.human.cards[0], p.human.cards[1], h0[0], true);
-      if(state.revealed.human>=2 && h0[1]) drawCard(p.human.cards[2], p.human.cards[3], h0[1], true);
-      if(state.revealed.ai>=1 && h1[0])    drawCard(p.ai.cards[0],    p.ai.cards[1],    h1[0], state.street==='showdown');
-      if(state.revealed.ai>=2 && h1[1])    drawCard(p.ai.cards[2],    p.ai.cards[3],    h1[1], state.street==='showdown');
+      if (isMultiplayer) {
+        // In multiplayer: always show my cards in human position (bottom), opponent in AI position (top)
+        const myId = getMyId();
+        const opponentId = 1 - myId;
+        
+        // My cards (always in human position, always face up)
+        if(state.players[myId].hole[0]) {
+          drawCard(p.human.cards[0], p.human.cards[1], state.players[myId].hole[0], true);
+        }
+        if(state.players[myId].hole[1]) {
+          drawCard(p.human.cards[2], p.human.cards[3], state.players[myId].hole[1], true);
+        }
+        
+        // Opponent cards (always in AI position, face down unless showdown)
+        const showOpponentCards = state.street === 'showdown';
+        if(state.players[opponentId].hole[0]) {
+          drawCard(p.ai.cards[0], p.ai.cards[1], state.players[opponentId].hole[0], showOpponentCards);
+        }
+        if(state.players[opponentId].hole[1]) {
+          drawCard(p.ai.cards[2], p.ai.cards[3], state.players[opponentId].hole[1], showOpponentCards);
+        }
+      } else {
+        // Single player mode: original logic
+        if(state.revealed.human>=1 && h0[0]) drawCard(p.human.cards[0], p.human.cards[1], h0[0], true);
+        if(state.revealed.human>=2 && h0[1]) drawCard(p.human.cards[2], p.human.cards[3], h0[1], true);
+        if(state.revealed.ai>=1 && h1[0])    drawCard(p.ai.cards[0],    p.ai.cards[1],    h1[0], state.street==='showdown');
+        if(state.revealed.ai>=2 && h1[1])    drawCard(p.ai.cards[2],    p.ai.cards[3],    h1[1], state.street==='showdown');
+      }
       // moving card on top
       if(state.moving){
         const m=state.moving; const now=performance.now();
@@ -579,6 +702,9 @@ function positions(){
         state.players[1-state.dealer].hole.push(state.deck.pop());
       }
       state.revealed = { human:0, ai:0, board:0 };
+      // Preflop: small blind (dealer) acts first; treat only big blind as already acted
+      state.acted = [false, false];
+      state.acted[1 - state.dealer] = true;
       state.toAct = state.dealer;
       state.animating = true;
       updateControls();
@@ -592,7 +718,8 @@ function positions(){
     function toCall(pid){ return Math.max(0, state.curBet - state.betThisRound[pid]); }
     function allInCap(pid){ return state.players[pid].stack + state.betThisRound[pid]; }
     function openAmountRange(pid){
-      const min = state.curBet===0 ? BIG_BLIND : minRaise();
+      // Open amount: if no bet yet (besides blinds), minimum is BIG_BLIND; otherwise minRaise
+      const min = state.curBet===0 ? Math.max(BIG_BLIND, toCall(pid) + BIG_BLIND) : minRaise();
       // Cap by effective stacks (cannot bet more than opponent can ever call)
       const effectiveMax = Math.min(allInCap(pid), allInCap(1-pid));
       const max = Math.max(0, effectiveMax);
@@ -602,20 +729,75 @@ function positions(){
     function bothActedAndEqual(){
       // End the street when there is a bet (curBet>0), both have acted this street,
       // and their committed amounts are equal (i.e., a bet was called). If all-in+equal, auto-runout will handle.
-      if(isAllInAndEqual()) return false;
-      return state.curBet>0 && state.betThisRound[0]===state.betThisRound[1] && state.acted[0] && state.acted[1];
+      const allInEqual = isAllInAndEqual();
+      const curBetExists = state.curBet > 0;
+      const betsEqual = state.betThisRound[0] === state.betThisRound[1];
+      const bothActed = state.acted[0] && state.acted[1];
+      
+      console.log(`bothActedAndEqual check:`, {
+        allInEqual: allInEqual,
+        curBetExists: curBetExists,
+        betsEqual: betsEqual,
+        bothActed: bothActed,
+        betThisRound: [...state.betThisRound],
+        acted: [...state.acted],
+        curBet: state.curBet
+      });
+      
+      if(allInEqual) {
+        console.log('All-in and equal, returning false');
+        return false;
+      }
+      
+      const result = curBetExists && betsEqual && bothActed;
+      console.log(`bothActedAndEqual returning: ${result}`);
+      return result;
     }
     function bothCheckedThisStreet(){ return state.curBet===0 && state.acted[0] && state.acted[1]; }
     function endStreet(){
+      const oldStreet = state.street;
+      console.log(`endStreet called! Current street: ${oldStreet}`);
+      
       state.street = state.street==='preflop'? 'flop' : state.street==='flop'? 'turn' : state.street==='turn'? 'river' : 'showdown';
+      console.log(`Street changed from ${oldStreet} to ${state.street}`);
+      
       state.curBet=0; state.betThisRound=[0,0]; state.lastAggressor=-1; state.acted=[false,false]; state.toAct = state.dealer===1? 0 : 1;
-      if(state.street==='flop'){ state.board.push(state.deck.pop(), state.deck.pop(), state.deck.pop()); }
-      else if(state.street==='turn' || state.street==='river'){ state.board.push(state.deck.pop()); }
-      if(state.street==='showdown') { doShowdown(); return; }
+      
+      if(state.street==='flop'){ 
+        console.log('Dealing flop - adding 3 cards to board');
+        state.board.push(state.deck.pop(), state.deck.pop(), state.deck.pop()); 
+      }
+      else if(state.street==='turn' || state.street==='river'){ 
+        console.log(`Dealing ${state.street} - adding 1 card to board`);
+        state.board.push(state.deck.pop()); 
+      }
+      
+      if(state.street==='showdown') { 
+        console.log('Showdown reached');
+        doShowdown(); return; 
+      }
+      
       if(state.street==='flop'){ state.revealed.board = Math.max(state.revealed.board, 3); }
       if(state.street==='turn'){ state.revealed.board = Math.max(state.revealed.board, 4); }
       if(state.street==='river'){ state.revealed.board = Math.max(state.revealed.board, 5); }
-      updateControls(); draw(); if(!maybeAutoRunout()) maybeAIMove();
+
+      // Ensure we're not blocked by animation
+      state.animating = false;
+      // If it became my turn (AI) immediately after street change in single-player, act
+      if(!isMultiplayer && state.toAct===1){
+        scheduleAI(0);
+      }
+      
+      console.log(`endStreet complete. Board now has ${state.board.length} cards, toAct=${state.toAct}`);
+      updateControls(); draw(); if(!maybeAutoRunout()) {
+        if(!isMultiplayer && state.toAct===1 && !state.animating){
+          try { aiAct(); } catch { scheduleAI(0); }
+        } else {
+          maybeAIMove();
+        }
+      }
+      // Safety: if still on this street without action after short delay, force AI act
+      if(!isMultiplayer && state.toAct===1){ setTimeout(()=>{ try{ if(state.toAct===1 && state.street!== 'showdown' && !state.animating) aiAct(); }catch{ scheduleAI(100);} }, 200); }
     }
 
     function isAllInAndEqual(){
@@ -754,13 +936,64 @@ function positions(){
     }
     function playerFold(pid){ state.players[pid].folded=true; const opp=1-pid; state.players[opp].stack += state.pot; state.message=`${state.players[opp].name} wins ${state.pot}`; state.pot=0; state.street='showdown'; if(pid===1) showAIAction('folded'); showLog(state.message); updateControls(); draw(); setTimeout(()=>resetHand(), 1400); }
     function playerCall(pid){
+      console.log(`ORIGINAL playerCall: pid=${pid}, before state:`, {
+        betThisRound: [...state.betThisRound],
+        curBet: state.curBet,
+        acted: [...state.acted],
+        toAct: state.toAct
+      });
+      
       const need=toCall(pid); const p=state.players[pid]; const pay=Math.min(need, p.stack);
+      console.log(`Call calculation: need=${need}, pay=${pay}, stack=${p.stack}`);
+      
       p.stack-=pay; state.betThisRound[pid]+=pay; state.pot+=pay;
+      state.curBet = Math.max(state.curBet, state.betThisRound[0], state.betThisRound[1]);
       state.acted[pid] = true;
+      
+      console.log(`After call: pid=${pid}, after state:`, {
+        betThisRound: [...state.betThisRound],
+        curBet: state.curBet,
+        acted: [...state.acted],
+        toAct: state.toAct,
+        pot: state.pot
+      });
+
+      // Single-player: after a preflop call, always advance to flop to avoid stalls
+      if(!isMultiplayer && state.street==='preflop'){
+        state.acted = [true,true];
+        endStreet();
+        return;
+      }
+      
       // If an all-in has been called and bets are matched, immediately run out the board
-      if(isAllInAndEqual()) { updateControls(); draw(); maybeAutoRunout(); return; }
-      if(bothActedAndEqual()) { endStreet(); }
-      else { state.toAct=nextPlayerAfter(pid); updateControls(); draw(); if(!maybeAutoRunout()) maybeAIMove(); }
+      if(isAllInAndEqual()) { 
+        console.log('All-in condition met, running out board');
+        updateControls(); draw(); maybeAutoRunout(); return; 
+      }
+      
+      const bothActed = bothActedAndEqual();
+      console.log(`bothActedAndEqual() returned: ${bothActed}`);
+      
+      if(bothActed) { 
+        console.log('Both players acted and equal, calling endStreet()');
+        endStreet(); 
+      } else { 
+        console.log('Not both acted/equal, continuing play');
+        state.toAct=nextPlayerAfter(pid);
+        updateControls();
+        draw();
+        // If both have now acted with equal bets, close street
+        if(bothActedAndEqual() || bothCheckedThisStreet()) { endStreet(); return; }
+        if(!maybeAutoRunout() && !isMultiplayer && state.toAct===1 && !state.animating){ try { aiAct(); } catch { scheduleAI(0); } }
+      }
+      // Safety: if preflop bets are equal shortly after a call, auto-close street
+      if(!isMultiplayer && state.street==='preflop'){
+        setTimeout(()=>{ try{
+          if(state.street==='preflop' && state.betThisRound[0]===state.betThisRound[1]){
+            endStreet();
+          }
+        }catch{} }, 250);
+      }
     }
     function playerBetOrRaise(pid, amount){
       const [minAmt, maxAmt]=openAmountRange(pid);
@@ -788,8 +1021,42 @@ function positions(){
     function showLog(msg){ const el=document.getElementById('log'); el.textContent=msg; el.style.display='block'; clearTimeout(showLog._t); showLog._t=setTimeout(()=>{ el.style.display='none'; }, 2200); }
     function showAIAction(text){ const el=document.getElementById('log'); el.textContent = `Your AI poker player ${text}`; el.style.display='block'; clearTimeout(showAIAction._t); showAIAction._t=setTimeout(()=>{ el.style.display='none'; }, 2000); }
     function updateControls(){
-      const pid=0; const meTurn = state.toAct===pid && !state.players[pid].folded && state.street!=='showdown' && !state.animating;
+      const pid = isMultiplayer ? getMyId() : 0; 
+      
+      // In multiplayer, don't update controls until we have a valid assigned player ID
+      if (isMultiplayer && (assignedPlayerId === null || pid === null)) {
+        console.log('updateControls: waiting for assigned player ID', { assignedPlayerId, pid });
+        const disableAll = true;
+        foldBtn.disabled = disableAll;
+        checkCallBtn.disabled = disableAll;
+        halfBtn.disabled = disableAll; 
+        potBtn.disabled = disableAll; 
+        allinBtn.disabled = disableAll; 
+        betRaiseBtn.disabled = disableAll;
+        return;
+      }
+      
+      const meTurn = state.toAct===pid && !state.players[pid].folded && state.street!=='showdown' && !state.animating;
       const callable = toCall(pid);
+      
+      console.log(`updateControls: myId=${pid}, toAct=${state.toAct}, meTurn=${meTurn}, assignedPlayerId=${assignedPlayerId}`);
+      console.log(`Game state:`, {
+        street: state.street,
+        curBet: state.curBet,
+        betThisRound: state.betThisRound,
+        callable: callable,
+        playerChips: state.players.map(p => p.chips),
+        playerBets: state.players.map(p => p.bet),
+        acted: state.acted,
+        dealer: state.dealer,
+        isMyTurn: meTurn
+      });
+      
+      // Log blind positions for debugging
+      if (state.street === 'preflop') {
+        console.log(`Preflop positions: Dealer=${state.dealer} (small blind), Big blind=${1-state.dealer}, First to act=${state.toAct}`);
+      }
+      
       const disableAll = state.animating || state.street==='showdown';
       foldBtn.disabled = disableAll || !meTurn;
       checkCallBtn.textContent = callable>0 ? `Call ${callable}` : 'Check';
@@ -798,17 +1065,86 @@ function positions(){
       betAmt.value = Math.min(Math.max(Number(betAmt.value)||minAmt, minAmt), maxAmt);
       halfBtn.disabled = disableAll || !meTurn; potBtn.disabled = disableAll || !meTurn; allinBtn.disabled = disableAll || !meTurn; betRaiseBtn.disabled = disableAll || !meTurn;
       betRaiseBtn.textContent = state.curBet>0? 'Raise' : 'Bet';
+
+      // In single-player, if it's AI's turn now and we're not animating, act immediately
+      if (!isMultiplayer && state.toAct===1 && !state.animating && state.street!=='showdown') {
+        try { aiAct(); } catch { scheduleAI(0); }
+      }
     }
-    foldBtn.addEventListener('click', ()=>{ if(state.toAct!==0) return; playerFold(0); });
-    checkCallBtn.addEventListener('click', ()=>{ if(state.toAct!==0) return; const need=toCall(0); if(need>0) playerCall(0); else { state.acted[0]=true; if(bothCheckedThisStreet()) endStreet(); else { state.toAct=1; updateControls(); draw(); maybeAIMove(); } }});
-    halfBtn.addEventListener('click', ()=>{ if(state.toAct!==0) return; const potHalf = Math.max(BIG_BLIND, Math.round((state.pot + toCall(0)) * 0.5)); betAmt.value = potHalf; });
-    potBtn.addEventListener('click', ()=>{ if(state.toAct!==0) return; const potSize = state.pot + toCall(0); betAmt.value = Math.max(BIG_BLIND, potSize); });
-    allinBtn.addEventListener('click', ()=>{ if(state.toAct!==0) return; betAmt.value = allInCap(0); });
-    betRaiseBtn.addEventListener('click', ()=>{ if(state.toAct!==0) return; const amt = Number(betAmt.value)||0; playerBetOrRaise(0, amt); });
+    foldBtn.addEventListener('click', ()=>{ 
+      const myId = isMultiplayer ? getMyId() : 0; 
+      if(state.toAct!==myId) return; 
+      playerFold(myId); 
+    });
+    checkCallBtn.addEventListener('click', ()=>{ 
+      const myId = isMultiplayer ? getMyId() : 0; 
+      console.log(`Check/Call button clicked: myId=${myId}, toAct=${state.toAct}, isMyTurn=${state.toAct===myId}`);
+      
+      if(isMultiplayer && state.toAct!==myId) {
+        console.log('Not my turn (multiplayer), ignoring click');
+        return; 
+      }
+      
+      const need=toCall(myId); 
+      console.log(`Amount needed to call: ${need}`);
+      
+      if(need>0) {
+        console.log('Calling with amount:', need);
+        playerCall(myId); 
+      } else { 
+        console.log('Checking (no amount to call)');
+        state.acted[myId]=true; 
+        if(bothActedAndEqual() || bothCheckedThisStreet()) { endStreet(); return; }
+        else { 
+          state.toAct = myId === 0 ? 1 : 0; 
+          updateControls(); 
+          draw(); 
+          if(!isMultiplayer && state.toAct===1 && !state.animating){
+            try { aiAct(); } catch { scheduleAI(0); }
+          } else {
+            maybeAIMove();
+          }
+        } 
+      }
+    });
+    halfBtn.addEventListener('click', ()=>{ 
+      const myId = isMultiplayer ? getMyId() : 0; 
+      if(state.toAct!==myId) return; 
+      const potHalf = Math.max(BIG_BLIND, Math.round((state.pot + toCall(myId) + state.betThisRound[0] + state.betThisRound[1]) * 0.5)); 
+      betAmt.value = potHalf; 
+    });
+    potBtn.addEventListener('click', ()=>{ 
+      const myId = isMultiplayer ? getMyId() : 0; 
+      if(state.toAct!==myId) return; 
+      const potSize = state.pot + toCall(myId) + state.betThisRound[0] + state.betThisRound[1]; 
+      betAmt.value = Math.max(BIG_BLIND, potSize); 
+    });
+    allinBtn.addEventListener('click', ()=>{ 
+      const myId = isMultiplayer ? getMyId() : 0; 
+      if(state.toAct!==myId) return; 
+      betAmt.value = allInCap(myId); 
+    });
+    betRaiseBtn.addEventListener('click', ()=>{ 
+      const myId = isMultiplayer ? getMyId() : 0; 
+      if(state.toAct!==myId) return; 
+      const amt = Number(betAmt.value)||0; 
+      playerBetOrRaise(myId, amt); 
+    });
 
     // AI Decision (Monte Carlo + heuristics)
     let aiTimer = null;
-    function scheduleAI(delay){ if(aiTimer) { try{ clearTimeout(aiTimer); }catch{} aiTimer=null; } aiTimer = setTimeout(()=>{ aiTimer=null; if(state.toAct===1 && !state.players[1].folded && state.street!=='showdown' && !state.animating) aiAct(); }, delay); }
+    function aiForceAct(){
+      try{
+        const need = toCall(1);
+        if(need>0){ playerCall(1); }
+        else {
+          state.acted[1]=true;
+          if(bothActedAndEqual() || bothCheckedThisStreet()) endStreet();
+          else { state.toAct=0; updateControls(); draw(); }
+        }
+      }catch{}
+    }
+    function scheduleAI(delay){ if(aiTimer) { try{ clearTimeout(aiTimer); }catch{} aiTimer=null; } aiTimer = setTimeout(()=>{ aiTimer=null; if(!isMultiplayer && state.toAct===1 && !state.players[1].folded && state.street!=='showdown' && !state.animating) { try{ aiAct(); }catch(e){ console.error('aiAct error, forcing simple action', e); aiForceAct(); } } }, delay); }
     function maybeAIMove(){ if(state.toAct!==1 || state.players[1].folded || state.street==='showdown') return; scheduleAI(150 + Math.random()*200); }
     // Preflop strength heuristic 0..1 for all-in discipline
     function preflopScore(hole){
@@ -833,7 +1169,7 @@ function positions(){
       if(me.stack===0){ 
         state.acted[pid] = true;
         if(bothActedAndEqual() || bothCheckedThisStreet()) endStreet(); 
-        else { state.toAct=0; updateControls(); draw(); if(!maybeAutoRunout()){} } 
+        else { state.toAct=0; updateControls(); draw(); if(!maybeAutoRunout()) maybeAIMove(); } 
         return; 
       }
       const potNow = state.pot;
@@ -842,9 +1178,10 @@ function positions(){
       const eq = estimateEquity(me.hole, state.board, hero.hole, iters);
       const minR = openAmountRange(pid)[0];
       const posAdv = (state.dealer===pid && (state.street==='flop'||state.street==='turn'||state.street==='river')) ? 0.02 : 0.0;
-      const strong = eq > (0.63 - posAdv);
-      const medium = eq > (0.50 - posAdv);
-      const weak = eq < (0.40 - posAdv);
+      // Slightly lower thresholds to increase overall aggression without going wild
+      const strong = eq > (0.58 - posAdv);
+      const medium = eq > (0.46 - posAdv);
+      const weak = eq < (0.36 - posAdv);
       const rnd = Math.random();
       if(need>0){
         const potOdds = need / Math.max(1, (potNow + need));
@@ -856,36 +1193,565 @@ function positions(){
         }
         const mustHave = potOdds + edge;
         if(eq < mustHave){ playerFold(pid); return; }
-        if(!isFacingAllIn && strong && me.stack>minR && rnd<0.6){
-          const mult = state.street==='preflop'? 3.0 : state.street==='flop'? 2.2 : 1.7;
-          const size = Math.min(allInCap(pid), Math.max(minR, Math.round((need + potNow) * (mult*0.35))));
-          playerBetOrRaise(pid, size); showAIAction(`raised ${size}`); return;
+        // Raise more often: with strong hands frequently, with medium sometimes, and occasional bluff raises with good odds
+        if(!isFacingAllIn && me.stack>minR){
+          if(strong && rnd < 0.65){
+            const mult = state.street==='preflop'? 3.0 : state.street==='flop'? 2.2 : 1.7;
+            const size = Math.min(allInCap(pid), Math.max(minR, Math.round((need + potNow) * (mult*0.35))));
+            playerBetOrRaise(pid, size); showAIAction(`raised ${size}`); return;
+          }
+          if(medium && rnd < 0.25){
+            const size = Math.min(allInCap(pid), Math.max(minR, Math.round((potNow + need) * 0.6)));
+            playerBetOrRaise(pid, size); showAIAction(`raised ${size}`); return;
+          }
+          if(!weak && potOdds < 0.28 && rnd < 0.15){
+            const size = Math.min(allInCap(pid), Math.max(minR, Math.round((potNow + need) * 0.55)));
+            playerBetOrRaise(pid, size); showAIAction(`raised ${size}`); return;
+          }
         }
         playerCall(pid); showAIAction(`called ${need}`); if(isAllInAndEqual()) { updateControls(); draw(); maybeAutoRunout(); } return;
       } else {
         const base = state.street==='preflop'? 5 : state.street==='flop'? Math.round(potNow*0.66) : Math.round(potNow*0.55);
+        // Continuation betting: if AI was last aggressor, bet more frequently even without strong equity
+        const wasAggressor = state.lastAggressor === pid;
+        const cbetChance = state.street==='flop' ? 0.55 : state.street==='turn' ? 0.40 : state.street==='river' ? 0.28 : 0.0;
         if(strong){
           const size = Math.min(allInCap(pid), Math.max(minR, base));
           playerBetOrRaise(pid, size); showAIAction(`bet ${size}`); return;
         }
-        const smallBluffChance = state.street==='river'? 0.0 : 0.07;
-        if(medium && rnd<0.33){
+        const smallBluffChance = state.street==='river'? 0.06 : 0.18;
+        if(medium && rnd<0.40){
           const size = Math.min(allInCap(pid), Math.max(minR, Math.round(base*0.7)));
           playerBetOrRaise(pid, size); showAIAction(`bet ${size}`); return;
-        } else if(!weak && rnd<smallBluffChance){
+        } else if((!weak && rnd<smallBluffChance) || (wasAggressor && rnd < cbetChance)){
           const size = Math.min(allInCap(pid), Math.max(minR, Math.round(base*0.5)));
           playerBetOrRaise(pid, size); showAIAction(`bet ${size}`); return;
         }
         state.acted[pid] = true; showAIAction('checked');
-        if(bothActedAndEqual() || bothCheckedThisStreet()) endStreet(); 
-        else { state.toAct=0; updateControls(); draw(); if(!maybeAutoRunout()){} }
+        if(bothActedAndEqual() || bothCheckedThisStreet()) { endStreet(); }
+        else { state.toAct=0; updateControls(); draw(); if(!maybeAutoRunout()) maybeAIMove(); }
       }
     }
     function meTurned(){ state.acted[1]=true; }
     function showLog(msg){ const el=document.getElementById('log'); el.textContent=msg; el.style.display='block'; clearTimeout(showLog._t); showLog._t=setTimeout(()=>{ el.style.display='none'; }, 2200); }
 
+    // Multiplayer functions
+    function initMultiplayer() {
+      // Close existing connection if any
+      if (gameWs && gameWs.readyState !== WebSocket.CLOSED) {
+        console.log('Closing existing WebSocket connection');
+        gameWs.close();
+      }
+      
+      // Connect to Cloudflare Worker game WebSocket
+      const workerUrl = 'poker-multiplayer.xiachen.workers.dev';
+      const protocol = 'wss:';
+      const wsUrl = `${protocol}//${workerUrl}/game/${gameId}`;
+      
+      console.log('Creating new WebSocket connection to:', wsUrl);
+      gameWs = new WebSocket(wsUrl);
+      
+      gameWs.onopen = function() {
+        console.log('Connected to game WebSocket');
+        console.log('Sending join_game message:', {
+          type: 'join_game',
+          gameId: gameId,
+          playerId: myPlayerId,
+          playerName: myPlayerName
+        });
+        gameWs.send(JSON.stringify({
+          type: 'join_game',
+          gameId: gameId,
+          playerId: myPlayerId,
+          playerName: myPlayerName
+        }));
+        
+        // Start heartbeat to keep Worker alive
+        startHeartbeat();
+      };
+      
+      gameWs.onmessage = function(event) {
+        console.log('Received game message:', event.data);
+        const data = JSON.parse(event.data);
+        handleGameMessage(data);
+      };
+      
+      gameWs.onclose = function(event) {
+        console.log('Game WebSocket closed:', {
+          code: event.code,
+          reason: event.reason,
+          wasClean: event.wasClean,
+          timestamp: new Date().toISOString()
+        });
+        
+        // Check if this is a Worker suspension (code 1001) and try to reconnect
+        if (event.code === 1001 || event.reason?.includes('suspension')) {
+          console.log('Worker suspended, attempting reconnection...');
+          showLog('Connection lost due to server suspension. Reconnecting...');
+          
+          // Try to reconnect after a short delay
+          setTimeout(() => {
+            if (isMultiplayer && gameId && myPlayerId) {
+              console.log('Attempting to reconnect to game...');
+              initMultiplayer();
+            }
+          }, 2000);
+        } else if (event.code === 1006) {
+          // Unexpected disconnection - also try to reconnect
+          console.log('Unexpected disconnection, attempting reconnection...');
+          showLog('Connection lost unexpectedly. Reconnecting...');
+          
+          setTimeout(() => {
+            if (isMultiplayer && gameId && myPlayerId) {
+              console.log('Attempting to reconnect after unexpected disconnection...');
+              initMultiplayer();
+            }
+          }, 3000);
+        } else if (event.code !== 1000) { // 1000 = normal closure
+          showLog('Connection lost. Redirecting to lobby...');
+          setTimeout(() => {
+            window.location.href = 'lobby.html';
+          }, 3000);
+        }
+        
+        // Stop heartbeat when connection closes
+        stopHeartbeat();
+      };
+      
+      gameWs.onerror = function(error) {
+        console.error('Game WebSocket error:', error);
+      };
+    }
+    
+    function handleGameMessage(data) {
+      switch(data.type) {
+        case 'game_ready':
+          // Set assigned player ID from server
+          if (data.myPlayerId !== undefined) {
+            assignedPlayerId = data.myPlayerId;
+            console.log(`Server assigned me player ID: ${assignedPlayerId}`);
+          }
+          
+          // Set opponent info and start game
+          if (data.opponent) {
+            opponentName = data.opponent.name;
+            
+            // In multiplayer, each player should see themselves in their own position
+            // Update names so each player sees "You" for themselves and opponent name for opponent
+            const myName = decodeURIComponent(myPlayerName) || 'You';
+            const oppName = opponentName || 'Opponent';
+            
+            if (assignedPlayerId === 0) {
+              // I am player 0, opponent is player 1
+              state.players[0].name = myName;
+              state.players[1].name = oppName;
+            } else {
+              // I am player 1, opponent is player 0  
+              state.players[0].name = oppName;
+              state.players[1].name = myName;
+            }
+            
+            console.log(`Names set: Player 0 = ${state.players[0].name}, Player 1 = ${state.players[1].name}`);
+          }
+          console.log(`Game ready with ${data.playersConnected} players, I am player ${assignedPlayerId}`);
+          
+          // When both players connected in multiplayer, game master starts the hand and syncs state
+          if (isMultiplayer && data.playersConnected === 2) {
+            if (assignedPlayerId === 0) {
+              console.log('Game master: initializing hand and syncing');
+              resetHand();
+              // Ensure hands are revealed to appropriate extent for sync (backs for opponent)
+              state.revealed.human = 2;
+              state.revealed.ai = 2;
+              state.revealed.board = 0;
+              state.animating = false; state.glAnimating = false;
+              if (gameWs && gameWs.readyState === WebSocket.OPEN) {
+                gameWs.send(JSON.stringify({
+                  type: 'player_action',
+                  gameId: gameId,
+                  playerId: myPlayerId,
+                  action: {
+                    type: 'sync_state',
+                    gameState: {
+                      players: state.players,
+                      pot: state.pot,
+                      curBet: state.curBet,
+                      toAct: state.toAct,
+                      street: state.street,
+                      board: state.board,
+                      deck: state.deck,
+                      acted: state.acted,
+                      betThisRound: state.betThisRound
+                    }
+                  }
+                }));
+              }
+            }
+          }
+          
+          updateControls();
+          draw();
+          break;
+        case 'opponent_action':
+          handleOpponentAction(data.action);
+          break;
+        case 'game_ended':
+          showLog(`Game ended: ${data.reason}`);
+          // Only redirect if it's a disconnect, not normal game end
+          if (data.reason === 'Opponent disconnected') {
+            setTimeout(() => {
+              window.location.href = 'lobby.html';
+            }, 5000);
+          }
+          break;
+        case 'error':
+          showLog(`Error: ${data.message}`);
+          break;
+        case 'pong':
+          // Heartbeat response - connection is alive
+          console.log('Received pong response');
+          break;
+      }
+    }
+    
+    function handleOpponentAction(action) {
+      const opponentId = getOpponentId();
+      const myId = getMyId();
+      
+      console.log('Received opponent action:', action.type, action);
+      
+      // First, sync game state if provided (for all actions except sync_state)
+      if (action.gameState && action.type !== 'sync_state') {
+        console.log('Syncing game state from opponent action');
+        
+        // Preserve our player names
+        const myName = state.players[myId].name;
+        const oppName = state.players[opponentId].name;
+        
+        // Check if this state sync includes a street progression
+        const oldStreet = state.street;
+        const newStreet = action.gameState.street;
+        const streetChanged = oldStreet !== newStreet;
+        
+        console.log(`State sync: street change from ${oldStreet} to ${newStreet}, changed=${streetChanged}`);
+        
+        // Update game state with opponent's state (including deck for card sync)
+        state.players = JSON.parse(JSON.stringify(action.gameState.players));
+        state.pot = action.gameState.pot;
+        state.curBet = action.gameState.curBet;
+        state.toAct = action.gameState.toAct;
+        state.street = action.gameState.street;
+        state.board = JSON.parse(JSON.stringify(action.gameState.board));
+        if (action.gameState.acted) {
+          state.acted = JSON.parse(JSON.stringify(action.gameState.acted));
+        }
+        if (action.gameState.deck) {
+          state.deck = JSON.parse(JSON.stringify(action.gameState.deck));
+        }
+        if (action.gameState.betThisRound) {
+          state.betThisRound = JSON.parse(JSON.stringify(action.gameState.betThisRound));
+        }
+        
+        // Restore correct names for our perspective
+        state.players[myId].name = myName;
+        state.players[opponentId].name = oppName;
+        
+        console.log('Game state synced:', {
+          pot: state.pot,
+          curBet: state.curBet,
+          toAct: state.toAct,
+          street: state.street,
+          boardLength: state.board.length,
+          playerChips: state.players.map(p => p.chips),
+          playerBets: state.players.map(p => p.bet),
+          betThisRound: state.betThisRound,
+          streetChanged: streetChanged
+        });
+        
+        // Update revealed cards if street progressed
+        if (streetChanged) {
+          console.log('Street changed in sync, updating revealed cards');
+          if (state.street === 'flop') {
+            state.revealed.board = Math.max(state.revealed.board, 3);
+          } else if (state.street === 'turn') {
+            state.revealed.board = Math.max(state.revealed.board, 4);
+          } else if (state.street === 'river') {
+            state.revealed.board = Math.max(state.revealed.board, 5);
+          }
+        }
+        
+        // Validate state after sync
+        validateAndFixGameState();
+        
+        updateControls();
+        draw();
+        return; // Don't process the action again since state is already updated
+      }
+      
+      switch(action.type) {
+        case 'sync_state':
+          // Handle initial state sync
+          console.log('Received initial game state sync');
+          const newState = action.gameState;
+          
+          // Update local state with synchronized state, but preserve our player names
+          const myName = state.players[myId].name;
+          const oppName = state.players[opponentId].name;
+          
+          // Copy the game state
+          state.players = JSON.parse(JSON.stringify(newState.players));
+          state.pot = newState.pot;
+          state.curBet = newState.curBet;
+          state.toAct = newState.toAct;
+          state.street = newState.street;
+          state.board = JSON.parse(JSON.stringify(newState.board));
+          if (newState.deck) {
+            state.deck = JSON.parse(JSON.stringify(newState.deck));
+          }
+          
+          // Restore correct names for our perspective
+          state.players[myId].name = myName;
+          state.players[opponentId].name = oppName;
+          
+          console.log('Initial state synchronized, updating UI');
+          
+          // Validate and fix common state issues
+          validateAndFixGameState();
+
+          // Ensure reveal flags match current street so UI isn't greyed out
+          if (state.street === 'preflop') {
+            state.revealed.human = 2;
+            state.revealed.ai = 2; // keep opponent hidden in draw(), but mark 2 for layout
+            state.revealed.board = 0;
+            state.animating = false; state.glAnimating = false;
+          } else if (state.street === 'flop') {
+            state.revealed.human = 2; state.revealed.ai = 0; state.revealed.board = Math.max(state.revealed.board, 3);
+            state.animating = false; state.glAnimating = false;
+          } else if (state.street === 'turn') {
+            state.revealed.human = 2; state.revealed.ai = 0; state.revealed.board = Math.max(state.revealed.board, 4);
+            state.animating = false; state.glAnimating = false;
+          } else if (state.street === 'river') {
+            state.revealed.human = 2; state.revealed.ai = 0; state.revealed.board = Math.max(state.revealed.board, 5);
+            state.animating = false; state.glAnimating = false;
+          }
+          
+          updateControls();
+          draw();
+          break;
+        case 'fold':
+          playerFold(opponentId);
+          break;
+        case 'call':
+          playerCall(opponentId);
+          break;
+        case 'bet_raise':
+          playerBetOrRaise(opponentId, action.amount);
+          break;
+        case 'check':
+          state.acted[opponentId] = true;
+          if(bothCheckedThisStreet()) endStreet();
+          else { 
+            state.toAct = myId; 
+            updateControls(); 
+            draw(); 
+          }
+          break;
+      }
+    }
+    
+    function getMyId() {
+      // In multiplayer, use the ID assigned by the server
+      if (!isMultiplayer) return 0;
+      
+      // Use the assigned player ID from the server
+      const myId = assignedPlayerId !== null ? assignedPlayerId : 0;
+      console.log(`getMyId() returning: ${myId} (assignedPlayerId: ${assignedPlayerId})`);
+      return myId;
+    }
+    
+    function getOpponentId() {
+      return 1 - getMyId();
+    }
+    
+    function validateAndFixGameState() {
+      console.log('Validating game state...');
+      
+      // Ensure basic state properties exist
+      if (!state.players || state.players.length !== 2) {
+        console.error('Invalid players state');
+        return;
+      }
+      
+      if (typeof state.toAct !== 'number' || state.toAct < 0 || state.toAct > 1) {
+        console.warn('Invalid toAct, setting to 0');
+        state.toAct = 0;
+      }
+      
+      if (!Array.isArray(state.betThisRound) || state.betThisRound.length !== 2) {
+        console.warn('Invalid betThisRound, initializing');
+        state.betThisRound = [0, 0];
+      }
+      
+      if (!Array.isArray(state.acted) || state.acted.length !== 2) {
+        console.warn('Invalid acted array, initializing');
+        state.acted = [false, false];
+      }
+      
+      if (typeof state.curBet !== 'number' || state.curBet < 0) {
+        console.warn('Invalid curBet, setting to 0');
+        state.curBet = 0;
+      }
+      
+      // Ensure consistent bet state
+      for (let i = 0; i < 2; i++) {
+        if (typeof state.players[i].chips !== 'number') {
+          console.warn(`Player ${i} has invalid chips`);
+          state.players[i].chips = 1000; // Default
+        }
+        if (typeof state.players[i].bet !== 'number') {
+          console.warn(`Player ${i} has invalid bet`);
+          state.players[i].bet = 0;
+        }
+        if (typeof state.betThisRound[i] !== 'number') {
+          console.warn(`Player ${i} has invalid betThisRound`);
+          state.betThisRound[i] = 0;
+        }
+      }
+      
+      console.log('Game state validation complete');
+      
+      // Additional debugging for blind positions
+      if (state.street === 'preflop') {
+        console.log(`POST-VALIDATION Preflop: dealer=${state.dealer}, toAct=${state.toAct}, betThisRound=[${state.betThisRound}]`);
+      }
+    }
+    
+    function sendAction(actionType, amount = null) {
+      if (!isMultiplayer || !gameWs || gameWs.readyState !== WebSocket.OPEN) {
+        return;
+      }
+      
+      const action = {
+        type: 'player_action',
+        gameId: gameId,
+        playerId: myPlayerId,
+        action: {
+          type: actionType,
+          amount: amount,
+          // Include current game state to keep players synchronized
+          gameState: {
+            players: state.players,
+            pot: state.pot,
+            curBet: state.curBet,
+            toAct: state.toAct,
+            street: state.street,
+            board: state.board,
+            acted: state.acted,
+            deck: state.deck,
+            betThisRound: state.betThisRound
+          }
+        }
+      };
+      
+      console.log(`Sending action ${actionType} with game state:`, action.action.gameState);
+      gameWs.send(JSON.stringify(action));
+    }
+    
+    // Heartbeat functions to keep Worker alive
+    function startHeartbeat() {
+      // Clear any existing heartbeat
+      if (heartbeatInterval) {
+        clearInterval(heartbeatInterval);
+      }
+      
+      // Send ping every 25 seconds to prevent Worker suspension
+      heartbeatInterval = setInterval(() => {
+        if (gameWs && gameWs.readyState === WebSocket.OPEN) {
+          console.log('Sending heartbeat ping');
+          gameWs.send(JSON.stringify({
+            type: 'ping',
+            timestamp: Date.now()
+          }));
+        }
+      }, 25000);
+      
+      console.log('Heartbeat started - sending ping every 25 seconds');
+    }
+    
+    function stopHeartbeat() {
+      if (heartbeatInterval) {
+        clearInterval(heartbeatInterval);
+        heartbeatInterval = null;
+        console.log('Heartbeat stopped');
+      }
+    }
+    
+    // Override AI move for multiplayer
+    function maybeAIMove() {
+      if (isMultiplayer) {
+        console.log('Multiplayer mode: no AI move, waiting for human opponent');
+        // In multiplayer, no AI - just wait for opponent's action
+        return;
+      }
+      
+      // Original AI logic for single player mode
+      console.log('Single-player mode: scheduling AI move');
+      if(state.toAct!==1 || state.players[1].folded || state.street==='showdown') return; 
+      scheduleAI(150 + Math.random()*200);
+    }
+    
+    // Override player actions to send to server in multiplayer mode
+    const originalPlayerFold = playerFold;
+    const originalPlayerCall = playerCall;
+    const originalPlayerBetOrRaise = playerBetOrRaise;
+    if(isMultiplayer){
+      playerFold = function(pid){ console.log('mp wrap fold'); if(pid===getMyId()) sendAction('fold'); originalPlayerFold(pid); };
+      playerCall = function(pid){ console.log('mp wrap call'); if(pid===getMyId()) sendAction('call'); originalPlayerCall(pid); };
+      playerBetOrRaise = function(pid, amount){ console.log('mp wrap bet_raise'); if(pid===getMyId()) sendAction('bet_raise', amount); originalPlayerBetOrRaise(pid, amount); };
+    }
+    
+    // Update player names for multiplayer
+    function getPlayerName(pid) {
+      if (!isMultiplayer) {
+        return pid === 0 ? 'You' : 'AI';
+      }
+      
+      if (pid === getMyId()) {
+        return decodeURIComponent(myPlayerName) || 'You';
+      } else {
+        return decodeURIComponent(opponentName) || 'Opponent';
+      }
+    }
+
+    // Add global error handler for debugging
+    window.addEventListener('error', function(event) {
+      console.error('JavaScript error:', event.error);
+      if (isMultiplayer && gameWs) {
+        console.log('WebSocket state after error:', {
+          readyState: gameWs.readyState,
+          url: gameWs.url
+        });
+      }
+    });
+
+    // Add unhandled promise rejection handler
+    window.addEventListener('unhandledrejection', function(event) {
+      console.error('Unhandled promise rejection:', event.reason);
+    });
+
     resize();
-    resetHand();
+    // Start a hand only in single-player here. In multiplayer, the game master will start it after both players are ready
+    if (!isMultiplayer) {
+      resetHand();
+    }
+    // Expose debug helpers for console inspection
+    try{
+      window.poker = {
+        get state(){ return state; },
+        endStreet, bothActedAndEqual, bothCheckedThisStreet, toCall,
+        scheduleAI, aiAct, playerCall, playerBetOrRaise, updateControls
+      };
+    }catch{}
   })();
   </script>
 </body>

@@ -1,0 +1,409 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+  <title>Heads-Up Poker — Bot</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/7.4.0/pixi.min.js"></script>
+  <style>
+    :root {
+      --bg1:#0b1220; --bg2:#0f172a; --felt1:#064e3b; --felt2:#052e2a; --felt3:#031a17;
+      --line:#10b981; --panel: rgba(14,23,42,0.95); --muted:#93c5fd; --text:#e2e8f0; --accent:#60a5fa; --accent2:#a78bfa;
+    }
+    html, body { height:100%; margin:0; background:linear-gradient(135deg,var(--bg2),var(--bg1)); color:var(--text); font-family:'Segoe UI', Arial, sans-serif; }
+    .wrap { min-height:100%; display:grid; grid-template-rows:auto 1fr auto; }
+    header { display:flex; align-items:center; gap:12px; padding:calc(10px + env(safe-area-inset-top)) 16px 12px 16px; background:var(--panel); border-bottom:1px solid #334155; box-shadow:0 2px 8px rgba(0,0,0,.3); }
+    header h1 { margin:0; font-size:20px; font-weight:800; background:linear-gradient(45deg,var(--accent),var(--accent2)); -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; }
+    header .spacer { flex:1; }
+    header a { color:var(--muted); text-decoration:none; padding:6px 10px; border:1px solid #475569; border-radius:8px; }
+    #stage { position:relative; padding: 10px; }
+    #table { width:100%; height: min(78vh, 780px); display:block; border-radius: 14px; background: radial-gradient(120% 120% at 50% 35%, var(--felt1) 0%, var(--felt2) 70%, var(--felt3) 100%); border: 1px solid #065f46; box-shadow: 0 12px 40px rgba(0,0,0,0.35) inset; }
+    #glLayer { position:absolute; inset:10px 10px 70px 10px; border-radius:14px; overflow:hidden; pointer-events:none; }
+    #glLayer canvas { width:100% !important; height:100% !important; display:block; }
+    #hud { position:absolute; left:12px; right:12px; bottom:12px; display:flex; gap:10px; align-items:center; justify-content:center; flex-wrap:wrap; pointer-events:auto; }
+    .btn { padding:10px 14px; border-radius:10px; border:2px solid #475569; background:linear-gradient(135deg,#1e293b,#334155); color:var(--text); font-weight:800; cursor:pointer; min-width:84px; }
+    .btn:hover { border-color:var(--accent); transform: translateY(-1px); }
+    .btn:disabled { opacity:0.4; cursor:not-allowed; }
+    .panel { display:flex; align-items:center; gap:8px; padding:8px 10px; border-radius:10px; background:rgba(2,6,23,0.7); border:1px solid #334155; }
+    .amt { width:88px; padding:8px 10px; border-radius:10px; border:2px solid #475569; background:#0b1220; color:var(--text); font-weight:700; }
+    .chip { padding:4px 10px; border-radius:999px; border:1px solid #334155; background:rgba(15,23,42,.6); color:#cbd5e1; }
+    #log { position:absolute; left:50%; transform:translateX(-50%); top:12px; padding:6px 10px; border-radius:10px; background:rgba(2,6,23,0.7); border:1px solid #334155; color:#e2e8f0; font-weight:700; }
+    .result { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); padding:18px 22px; border-radius:12px; background:rgba(2,6,23,0.88); border:1px solid #94a3b8; color:#f8fafc; font-weight:900; text-align:center; display:none; z-index:20; box-shadow: 0 20px 80px rgba(0,0,0,0.45); font-size: clamp(18px, 3.2vw, 34px); }
+    footer { display:none; }
+    .result .res-btn { margin-top:12px; padding:10px 16px; border-radius:10px; border:2px solid #475569; background:linear-gradient(135deg,#1e293b,#334155); color:#e2e8f0; font-weight:800; cursor:pointer; }
+    .result .res-btn:hover { border-color:#60a5fa; transform: translateY(-1px); }
+      @media (max-width:768px) {
+      .amt { width:72px; }
+      #table { height: min(68vh, 640px); }
+    }
+    @media (max-width:430px) {
+      #table { height: min(70svh, 640px); }
+      #glLayer { inset: 8px 8px 72px 8px; }
+      #hud { display:grid; grid-template-columns: 1fr 1fr; gap:8px; justify-content:stretch; }
+      #hud .panel { grid-column: 1 / -1; }
+      .btn { min-width:68px; padding:9px 12px; }
+      .amt { width:64px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>Heads-Up Poker — Bot</h1>
+      <span id="blinds" class="chip">Blinds: 1/2</span>
+      <span class="spacer"></span>
+      <a href="games.html">All Games</a>
+    </header>
+    <div id="stage">
+      <canvas id="table"></canvas>
+      <div id="glLayer"></div>
+      <div id="result" class="result"></div>
+      <div id="log" style="display:none"></div>
+      <div id="hud">
+        <button id="foldBtn" class="btn">Fold</button>
+        <button id="checkCallBtn" class="btn">Check</button>
+        <div class="panel">
+          <button id="halfBtn" class="btn" title="Bet/Raise 1/2 pot">½ Pot</button>
+          <button id="potBtn" class="btn" title="Bet/Raise pot">Pot</button>
+          <button id="allinBtn" class="btn" title="All-in">All-in</button>
+          <input id="betAmt" class="amt" type="number" min="0" step="1" value="2"/>
+          <button id="betRaiseBtn" class="btn">Bet</button>
+        </div>
+      </div>
+    </div>
+    <footer></footer>
+  </div>
+  <script>
+  (function(){
+    'use strict';
+    const yrEl = document.getElementById('yr'); if(yrEl) yrEl.textContent = new Date().getFullYear();
+
+    // Force single-player mode
+    const isMultiplayer = false;
+
+    // Canvas setup
+    const canvas = document.getElementById('table');
+    const ctx = canvas.getContext('2d', { alpha:false, desynchronized:true });
+    const glContainer = document.getElementById('glLayer');
+    let pixiApp = null;
+    const cardTextureCache = new Map();
+    const spritePool = [];
+    function getPooledSprite(texture){ const s=spritePool.pop(); if(s){ s.texture=texture; s.visible=true; s.alpha=1; s.scale.set(1,1); return s; } const sp=new PIXI.Sprite(texture); sp.anchor.set(0.5,0.5); return sp; }
+    function releaseSprite(sprite){ if(!sprite) return; sprite.visible=false; try{ sprite.parent && sprite.parent.removeChild(sprite); }catch{} spritePool.push(sprite); }
+    function getCardTexture(card, faceUp, scale){ if(!pixiApp) return null; const sc=Math.round((scale||1)*100)/100; if(!faceUp){ const k=`back_${sc}`; if(cardTextureCache.has(k)) return cardTextureCache.get(k); const w=60*sc, h=86*sc, r=9*sc; const g=new PIXI.Graphics(); g.beginFill(0xf8fafc); g.lineStyle(2,0xcbd5e1,1); g.drawRoundedRect(-w/2,-h/2,w,h,r); g.endFill(); const back=new PIXI.Graphics(); back.beginFill(0x1d4ed8); back.drawRoundedRect(-w/2,-h/2,w,h,r); back.endFill(); const c=new PIXI.Container(); c.addChild(back); const tex=pixiApp.renderer.generateTexture(c,{resolution:1}); cardTextureCache.set(k,tex); return tex; } else { const k=`f_${card.r}_${card.s}_${sc}`; if(cardTextureCache.has(k)) return cardTextureCache.get(k); const w=60*sc,h=86*sc,r=9*sc; const suitColors=[0x111827,0xef4444,0xef4444,0x065f46]; const gfx=new PIXI.Graphics(); gfx.beginFill(0xf8fafc); gfx.lineStyle(2,0xcbd5e1,1); gfx.drawRoundedRect(-w/2,-h/2,w,h,r); gfx.endFill(); const rankText=new PIXI.Text(rankStr(card.r),{fontFamily:'Arial Black',fontSize:14*sc,fill:suitColors[card.s],resolution:1}); rankText.anchor.set(0,0); rankText.position.set(-w/2+8,-h/2+6); const suitText=new PIXI.Text(SUIT_EMO[card.s],{fontFamily:'Segoe UI Emoji',fontSize:14*sc,fill:suitColors[card.s],resolution:1}); suitText.anchor.set(0,0); suitText.position.set(-w/2+8,-h/2+24); const centerSuit=new PIXI.Text(SUIT_EMO[card.s],{fontFamily:'Segoe UI Emoji',fontSize:30*sc,fill:suitColors[card.s],resolution:1}); centerSuit.anchor.set(0.5,0.5); centerSuit.position.set(0,8); const cont=new PIXI.Container(); cont.addChild(gfx,rankText,suitText,centerSuit); const tex=pixiApp.renderer.generateTexture(cont,{resolution:1}); cardTextureCache.set(k,tex); return tex; } }
+    let glCards=[]; let DPR=Math.min(1.25, window.devicePixelRatio||1); let bgCanvas=document.createElement('canvas'); let bgCtx=bgCanvas.getContext('2d'); let bgImage=null, bgImageLoaded=false, bgImageLoading=false;
+    function resize(){ const r=canvas.getBoundingClientRect(); DPR=Math.min(1.25, window.devicePixelRatio||1); canvas.width=Math.max(1, Math.floor(r.width*DPR)); canvas.height=Math.max(1, Math.floor(r.height*DPR)); bgCanvas.width=canvas.width; bgCanvas.height=canvas.height; buildBackground(); glContainer.innerHTML=''; pixiApp=null; draw(); }
+    function isSmallScreen(){ try{ const w=Math.min(window.innerWidth||0, document.documentElement.clientWidth||1); return w>0 && w<=430; }catch{ return false; } }
+    window.addEventListener('resize', resize);
+    function getHandle(){ try{ let h=localStorage.getItem('poker_handle'); if(!h){ h='Player-'+Math.floor(Math.random()*1e6).toString(36).toUpperCase(); localStorage.setItem('poker_handle', h); } return h; } catch { return 'Player-'+Math.floor(Math.random()*1e6).toString(36).toUpperCase(); } }
+    const HUMAN_NAME=getHandle();
+    const AI_NAME='OrbitBot';
+
+    const SMALL_BLIND=1, BIG_BLIND=2, START_STACK=200;
+    const TABLE_BG_URL='https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=2400&q=80';
+    const TABLE_BG_OPACITY=0.18;
+    function secureRandomIntInclusive(max){ max=Math.floor(max); if(max<=0) return 0; const range=max+1; if(window.crypto && window.crypto.getRandomValues){ const maxUint=0x100000000; const bucket=Math.floor(maxUint/range); const limit=bucket*range-1; const arr=new Uint32Array(1); while(true){ window.crypto.getRandomValues(arr); const v=arr[0]; if(v<=limit){ return v%range; } } } return (Math.random()*range)|0; }
+    function secureRandomBool(){ return secureRandomIntInclusive(1)===1; }
+
+    const state={ handId:0, dealer: secureRandomBool()? 0:1, players:[ { name: HUMAN_NAME, stack: START_STACK, hole:[], folded:false, isAI:false }, { name: AI_NAME, stack: START_STACK, hole:[], folded:false, isAI:true } ], deck:[], board:[], pot:0, street:'preflop', toAct:0, lastAggressor:-1, curBet:0, betThisRound:[0,0], actionOpen:true, message:'', revealed:{human:0, ai:0, board:0}, moving:null, animating:false, glAnimating:false, acted:[false,false], streetStartedAt: performance.now() };
+
+    const SUITS=['♠','♥','♦','♣'];
+    function newDeck(){ const d=[]; for(let s=0;s<4;s++){ for(let r=2;r<=14;r++){ d.push({r,s}); } } return d; }
+    function shuffle(a){ for(let i=a.length-1;i>0;i--){ const j=secureRandomIntInclusive(i); const tmp=a[i]; a[i]=a[j]; a[j]=tmp; } }
+    function cardStr(c){ const ranks='--23456789TJQKA'; return ranks[c.r]+SUITS[c.s]; }
+    function eval7(cards){ const bySuit=[[],[],[],[]]; const counts=new Map(); let maskRanks=0; for(const c of cards){ bySuit[c.s].push(c.r); counts.set(c.r,(counts.get(c.r)||0)+1); maskRanks|=1<<(c.r); } for(let s=0;s<4;s++) bySuit[s].sort((a,b)=>b-a); const ranks=Array.from(counts.keys()).sort((a,b)=>b-a); function bestStraightFromMask(mask){ if(mask & (1<<14)) mask|=1<<1; for(let hi=14; hi>=5; hi--){ let ok=true; for(let k=0;k<5;k++){ if(!(mask & (1<<(hi-k)))){ ok=false; break; } } if(ok) return hi; } return 0; } let flushSuit=-1; for(let s=0;s<4;s++){ if(bySuit[s].length>=5){ flushSuit=s; break; } } if(flushSuit>=0){ const maskFlush=bySuit[flushSuit].reduce((m,r)=>m|(1<<r),0); let hiSF=bestStraightFromMask(maskFlush); if(hiSF){ const rank=8*1e9 + hiSF*1e6; return {rank, cat:8, kickers:[hiSF]}; } } const groups={4:[],3:[],2:[],1:[]}; for(const r of ranks){ groups[counts.get(r)].push(r); } if(groups[4].length){ const four=groups[4][0]; const rest=ranks.filter(x=>x!==four); return { rank: 7*1e9 + four*1e6 + (rest[0]||0)*1e3, cat:7, kickers:[four,rest[0]||0] }; } if(groups[3].length){ if(groups[3].length>=2 || groups[2].length){ const trips=groups[3][0]; const pair=groups[3].length>=2 ? groups[3][1] : groups[2][0]; return { rank: 6*1e9 + trips*1e6 + pair*1e3, cat:6, kickers:[trips,pair] }; } }
+    if(flushSuit>=0){ const top5=bySuit[flushSuit].slice(0,5); return { rank: 5*1e9 + top5[0]*1e6 + top5[1]*1e4 + top5[2]*1e2 + top5[3], cat:5, kickers: top5 }; }
+    const hiSt=bestStraightFromMask(maskRanks); if(hiSt){ return { rank: 4*1e9 + hiSt*1e6, cat:4, kickers:[hiSt] }; }
+    if(groups[3].length){ const t=groups[3][0]; const rest=ranks.filter(x=>x!==t); return { rank: 3*1e9 + t*1e6 + (rest[0]||0)*1e4 + (rest[1]||0)*1e2, cat:3, kickers:[t, rest[0]||0, rest[1]||0] }; }
+    if(groups[2].length>=2){ const [p1,p2]=groups[2].slice(0,2); const rest=ranks.filter(x=>x!==p1&&x!==p2); return { rank: 2*1e9 + p1*1e6 + p2*1e4 + (rest[0]||0)*1e2, cat:2, kickers:[p1,p2, rest[0]||0] }; }
+    if(groups[2].length===1){ const p=groups[2][0]; const rest=ranks.filter(x=>x!==p); return { rank: 1*1e9 + p*1e6 + (rest[0]||0)*1e4 + (rest[1]||0)*1e2 + (rest[2]||0), cat:1, kickers:[p, rest[0]||0, rest[1]||0, rest[2]||0] }; }
+    const top5=ranks.slice(0,5); while(top5.length<5) top5.push(0); return { rank: top5[0]*1e6 + top5[1]*1e4 + top5[2]*1e2 + top5[3]*1, cat:0, kickers: top5 }; }
+    function compareHands(a,b){ return a.rank===b.rank?0:(a.rank>b.rank?1:-1); }
+    function handLabel(h){ const names=['High Card','Pair','Two Pair','Three of a Kind','Straight','Flush','Full House','Four of a Kind','Straight Flush']; return names[h.cat]||'Hand'; }
+
+    function buildBackground(){ const w=bgCanvas.width,h=bgCanvas.height; const bctx=bgCtx; bctx.setTransform(1,0,0,1,0,0); bctx.clearRect(0,0,w,h); const bgGrad=bctx.createLinearGradient(0,0,0,h); bgGrad.addColorStop(0,'#064e3b'); bgGrad.addColorStop(1,'#052e2a'); bctx.fillStyle=bgGrad; bctx.fillRect(0,0,w,h); bctx.save(); const yOff=0; bctx.translate(w/2, h/2 + yOff); const R=Math.min(w,h)*0.42; const r=R*(isSmallScreen()?0.40:0.35); bctx.fillStyle='#065f46'; bctx.strokeStyle=ctx.createLinearGradient(0,0,0,canvas.height); bctx.lineWidth=8*DPR; bctx.beginPath(); bctx.moveTo(-R, -r); bctx.lineTo(R, -r); bctx.arc(R,0,r,-Math.PI/2,Math.PI/2); bctx.lineTo(-R, r); bctx.arc(-R,0,r,Math.PI/2,-Math.PI/2); bctx.closePath(); bctx.fill(); bctx.stroke(); const g=bctx.createRadialGradient(w/2,h*0.35,Math.min(w,h)*0.05, w/2,h*0.35, Math.max(w,h)*0.7); g.addColorStop(0,'rgba(16,185,129,0.12)'); g.addColorStop(1,'rgba(16,185,129,0)'); bctx.fillStyle=g; bctx.fillRect(0,0,w,h); bctx.restore(); }
+    function drawTable(){ const w=canvas.width,h=canvas.height; ctx.setTransform(1,0,0,1,0,0); ctx.clearRect(0,0,w,h); ctx.drawImage(bgCanvas,0,0); }
+    function roundTablePath(R,r){ ctx.beginPath(); ctx.moveTo(-R, -r); ctx.lineTo(R, -r); ctx.arc(R,0,r,-Math.PI/2,Math.PI/2); ctx.lineTo(-R, r); ctx.arc(-R,0,r,Math.PI/2,-Math.PI/2); ctx.closePath(); }
+    const CHIP_DENOMS=[500,100,25,5,1]; const CHIP_COLORS={1:'#e5e7eb',5:'#ef4444',25:'#10b981',100:'#111827',500:'#a78bfa'};
+    function buildChipColumns(amount){ const cols=[]; let remain=Math.max(0, Math.floor(amount)); for(const v of CHIP_DENOMS){ let cnt=Math.floor(remain/v); remain-=cnt*v; while(cnt>0){ const take=Math.min(10,cnt); cols.push({ value:v, color:CHIP_COLORS[v]||'#cbd5e1', count:take }); cnt-=take; } } if(remain>0) cols.push({ value:1, color:CHIP_COLORS[1], count:remain }); return cols; }
+    function drawChipDisc(px,py,color){ ctx.save(); const grad=ctx.createRadialGradient(px-6*DPR, py-4*DPR, 2*DPR, px, py, 16*DPR); grad.addColorStop(0,'#ffffff18'); grad.addColorStop(1,'#00000025'); ctx.beginPath(); ctx.ellipse(px,py,16*DPR,6.5*DPR,0,0,Math.PI*2); ctx.fillStyle=color; ctx.fill(); ctx.strokeStyle='#0b0f18'; ctx.lineWidth=1.2*DPR; ctx.stroke(); ctx.beginPath(); ctx.ellipse(px,py,12*DPR,4.8*DPR,0,0,Math.PI*2); ctx.strokeStyle='rgba(255,255,255,0.45)'; ctx.lineWidth=1*DPR; ctx.stroke(); ctx.save(); ctx.globalAlpha=0.6; ctx.strokeStyle='rgba(255,255,255,0.6)'; ctx.lineWidth=1*DPR; for(let k=0;k<8;k++){ const ang=(Math.PI*2/8)*k; const ex=px+Math.cos(ang)*14*DPR; const ey=py+Math.sin(ang)*5.2*DPR; ctx.beginPath(); ctx.moveTo(ex,ey); ctx.lineTo(ex*0.995 + px*0.005, ey*0.995 + py*0.005); ctx.stroke(); } ctx.restore(); ctx.beginPath(); ctx.ellipse(px-5*DPR, py-3.5*DPR, 6*DPR, 2.2*DPR, -0.3, 0, Math.PI*2); ctx.fillStyle='rgba(255,255,255,0.18)'; ctx.fill(); ctx.beginPath(); ctx.ellipse(px+2*DPR, py+3.3*DPR, 14*DPR, 2*DPR, 0, 0, Math.PI*2); ctx.fillStyle='rgba(0,0,0,0.18)'; ctx.fill(); ctx.restore(); }
+    function drawChipColumn(px,py,color,count){ const gap=3.2*DPR; for(let i=0;i<count;i++){ drawChipDisc(px, py - i*gap, color); } }
+    function drawChipBank(anchorX,anchorY,amount,labelY){ const cols=buildChipColumns(amount); const step=(isSmallScreen()?18:24)*DPR; let x=anchorX; const bankYOffset=(isSmallScreen()?16:18)*DPR; for(let i=0;i<cols.length;i++){ const c=cols[i]; drawChipColumn(x, anchorY + bankYOffset, c.color, c.count); x-=step; } const centerX=anchorX - ((cols.length-1)*step)/2; const labelPosY=(typeof labelY==='number')? labelY : (anchorY - (isSmallScreen()?30:14)*DPR); ctx.save(); ctx.fillStyle='#e2e8f0'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.font=`${(isSmallScreen()?20:18)*DPR}px Arial Black`; ctx.fillText(String(amount), centerX, labelPosY); ctx.restore(); }
+    function drawBetIndicator(anchorX,anchorY,amount,labelY){ if(!amount || amount<=0) return; let x=anchorX + (isSmallScreen()?84:190)*DPR; const y=anchorY + (isSmallScreen()?16:18)*DPR; const maxX=canvas.width - 16*DPR; if(x>maxX) x=maxX; const sample=Math.min(6, Math.max(3, Math.round(Math.log10(amount+1))+2)); const palette=[CHIP_COLORS[25],CHIP_COLORS[100],CHIP_COLORS[5],CHIP_COLORS[500]].filter(Boolean); for(let i=0;i<sample;i++){ const col=palette[i%palette.length] || '#cbd5e1'; drawChipDisc(x + (i%2)*4*DPR, y - i*4*DPR, col); } const textY=(typeof labelY==='number')? labelY : (y - (isSmallScreen()?28:16)*DPR); const stackCenterX=x + 2*DPR; const textX=Math.min(stackCenterX, canvas.width - 16*DPR); ctx.save(); ctx.fillStyle='#f8fafc'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.font=`${(isSmallScreen()?22:22)*DPR}px Arial Black`; ctx.fillText(String(amount), textX, textY); ctx.restore(); }
+    function drawDealerButton(x,y){ ctx.save(); ctx.translate(x,y); const R=14*DPR; ctx.shadowColor='rgba(0,0,0,0.35)'; ctx.shadowBlur=6*DPR; const grad=ctx.createRadialGradient(-R*0.4,-R*0.4,R*0.4,0,0,R); grad.addColorStop(0,'#f3f4f6'); grad.addColorStop(1,'#d1d5db'); ctx.beginPath(); ctx.arc(0,0,R,0,Math.PI*2); ctx.fillStyle=grad; ctx.fill(); ctx.shadowBlur=0; ctx.strokeStyle='#111827'; ctx.lineWidth=2.2*DPR; ctx.stroke(); ctx.beginPath(); ctx.arc(0,0,R-4*DPR,0,Math.PI*2); ctx.strokeStyle='#6b7280'; ctx.lineWidth=1.4*DPR; ctx.stroke(); ctx.fillStyle='#111827'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.font=`${12*DPR}px Arial Black`; ctx.fillText('D',0,0); ctx.restore(); }
+    function suitColor(s){ if(s===1||s===2) return '#ef4444'; if(s===3) return '#065f46'; return '#111827'; }
+    function rankStr(r){ if(r===10) return '10'; return '--23456789TJQKA'[r]; }
+    const SUIT_EMO=['♠','♥','♦','♣'];
+    function drawCard(x,y,card,faceUp=true){ const sc=isSmallScreen()?0.9:1; const w=81*DPR*sc,h=116*DPR*sc,r=12*DPR*sc; ctx.save(); ctx.translate(x,y); ctx.shadowColor='rgba(0,0,0,0.4)'; ctx.shadowBlur=(isSmallScreen()?7:11)*DPR*sc; roundedRect(-w/2,-h/2,w,h,r); if(faceUp){ ctx.fillStyle='#ffffff'; ctx.strokeStyle='#b6c2cf'; ctx.lineWidth=2.2*DPR*sc; ctx.fill(); ctx.stroke(); roundedRect(-w/2+4*DPR*sc,-h/2+4*DPR*sc,w-8*DPR*sc,h-8*DPR*sc,r*0.8); ctx.strokeStyle='#e2e8f0'; ctx.lineWidth=1.2*DPR*sc; ctx.stroke(); ctx.fillStyle=suitColor(card.s); ctx.textAlign='left'; ctx.textBaseline='top'; ctx.font=`${22*DPR*sc}px Arial Black`; ctx.fillText(rankStr(card.r), -w/2+9*DPR*sc, -h/2+7*DPR*sc); ctx.font=`${22*DPR*sc}px Segoe UI Emoji`; ctx.fillText(SUIT_EMO[card.s], -w/2+9*DPR*sc, -h/2+32*DPR*sc); ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.font=`${49*DPR*sc}px Segoe UI Emoji`; ctx.fillText(SUIT_EMO[card.s], 0, 10*DPR*sc); } else { ctx.fillStyle='#114b8b'; ctx.strokeStyle='#0b3561'; ctx.lineWidth=2.4*DPR*sc; ctx.fill(); ctx.stroke(); ctx.save(); roundedRect(-w/2+8*DPR*sc,-h/2+8*DPR*sc,w-16*DPR*sc,h-16*DPR*sc,r*0.5); ctx.strokeStyle='#e5e7eb'; ctx.lineWidth=1.6*DPR*sc; ctx.stroke(); ctx.beginPath(); roundedRect(-w/2+10*DPR*sc,-h/2+10*DPR*sc,w-20*DPR*sc,h-20*DPR*sc,r*0.4); ctx.clip(); ctx.globalAlpha=0.35; ctx.strokeStyle='#cfe3ff'; ctx.lineWidth=1*DPR*sc; for(let y=-h/2; y<h/2; y+=9*DPR*sc){ ctx.beginPath(); ctx.moveTo(-w/2,y); ctx.lineTo(w/2,y+ w); ctx.stroke(); } for(let y=-h/2; y<h/2; y+=9*DPR*sc){ ctx.beginPath(); ctx.moveTo(w/2,y); ctx.lineTo(-w/2,y+ w); ctx.stroke(); } ctx.restore(); ctx.globalAlpha=1; } ctx.restore(); }
+
+    // PixiJS fly card animation (with canvas fallback)
+    function flyCard(from, to, card, faceUp, durMs, onDone){
+      try{
+        const sc = isSmallScreen()? 0.9 : 1;
+        const texture = getCardTexture(card, !!faceUp, sc) || null;
+        const sprite = texture ? getPooledSprite(texture) : new PIXI.Container();
+        const px = (valX,valY)=> [valX / DPR, valY / DPR];
+        const [sx,sy] = px(from.x, from.y);
+        pixiApp.stage.addChild(sprite);
+        sprite.position.set(sx, sy);
+        const start=performance.now(), D=Math.max(100, durMs);
+        function tick(){
+          const t=Math.min(1, (performance.now()-start)/D);
+          const ease = t<0.5 ? 2*t*t : -1+(4-2*t)*t;
+          const [nx,ny] = px(from.x + (to.x-from.x)*ease, from.y + (to.y-from.y)*ease);
+          sprite.position.set(nx, ny);
+          if(t<1){ requestAnimationFrame(tick); }
+          else { releaseSprite(sprite); if(onDone) onDone(); }
+        }
+        requestAnimationFrame(tick);
+      }catch(e){
+        state.moving = { from, to, start: performance.now(), dur: Math.max(100, durMs), card, faceUp, onDone };
+        requestAnimationFrame(draw);
+      }
+    }
+    function roundedRect(x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+    function positions(){ const w=canvas.width, h=canvas.height; const cx=w/2, cy=h/2; const boardY=cy + (isSmallScreen()?10:-14)*DPR; const gap=(isSmallScreen()?74:96)*DPR; return { board: [[cx-2*gap,boardY],[cx-gap,boardY],[cx,boardY],[cx+gap,boardY],[cx+2*gap,boardY]], pot:[cx, cy - (isSmallScreen()?10:56)*DPR], human:{ name:[cx, h-(isSmallScreen()?16:28)*DPR], cards:[cx-45*DPR, h-(isSmallScreen()?120:130)*DPR, cx+45*DPR, h-(isSmallScreen()?120:130)*DPR], chips:[cx+150*DPR, h-(isSmallScreen()?122:135)*DPR] }, ai:{ name:[cx, (isSmallScreen()?14:22)*DPR], cards:[cx-45*DPR, (isSmallScreen()?118:130)*DPR, cx+45*DPR, (isSmallScreen()?118:130)*DPR], chips:[cx+180*DPR, (isSmallScreen()?46:60)*DPR] } }; }
+    function draw(){
+      drawTable();
+      if(!canvas.width || !canvas.height){ return; }
+      const p=positions();
+      ctx.fillStyle='#e2e8f0'; ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.font=`${(isSmallScreen()?16:14)*DPR}px Segoe UI`;
+      try{ ctx.fillText(`${state.players[0].name}`, p.human.name[0], p.human.name[1]); ctx.fillText(`${state.players[1].name}`, p.ai.name[0], p.ai.name[1]); }catch{}
+      const alignYHuman=isSmallScreen()? (p.human.cards[1] - 36*DPR) : undefined; const alignYAI=isSmallScreen()? (p.ai.cards[1] - 36*DPR) : undefined;
+      try{ drawChipBank(p.human.cards[0] - (isSmallScreen()?64:110)*DPR, p.human.cards[1], state.players[0].stack, alignYHuman); }catch{}
+      try{ drawChipBank(p.ai.cards[0] - (isSmallScreen()?70:120)*DPR, p.ai.cards[1], state.players[1].stack, alignYAI); }catch{}
+      const dn=state.dealer===0 ? p.human.name : p.ai.name; const dpos=[dn[0]-(isSmallScreen()?78:62)*DPR, dn[1]]; drawDealerButton(dpos[0], dpos[1]);
+      ctx.fillStyle='#fbbf24'; ctx.font=`${18*DPR}px Arial Black`; ctx.fillText(`Pot: ${state.pot}`, p.pot[0], p.pot[1]);
+      for(let i=0;i<5;i++){ const [x,y]=p.board[i]; const c=state.board[i]; const show = i < (state.revealed?.board||0); drawCard(x,y, c||{r:14,s:0}, show); }
+      drawBetIndicator(p.human.cards[2], p.human.cards[3], (state.betThisRound?.[0])||0, alignYHuman);
+      drawBetIndicator(p.ai.cards[2], p.ai.cards[3], (state.betThisRound?.[1])||0, alignYAI);
+      const h0=(state.players?.[0]?.hole)||[], h1=(state.players?.[1]?.hole)||[];
+      if((state.revealed?.human||0)>=1 && h0[0]) drawCard(p.human.cards[0], p.human.cards[1], h0[0], true);
+      if((state.revealed?.human||0)>=2 && h0[1]) drawCard(p.human.cards[2], p.human.cards[3], h0[1], true);
+      if((state.revealed?.ai||0)>=1 && h1[0]) drawCard(p.ai.cards[0], p.ai.cards[1], h1[0], state.street==='showdown');
+      if((state.revealed?.ai||0)>=2 && h1[1]) drawCard(p.ai.cards[2], p.ai.cards[3], h1[1], state.street==='showdown');
+      if(state.moving){ const m=state.moving; const now=performance.now(); const t=Math.min(1,(now-m.start)/m.dur); const ease=t*t*(3-2*t); const x=m.from.x + (m.to.x-m.from.x)*ease; const y=m.from.y + (m.to.y-m.from.y)*ease; drawCard(x,y, m.card, m.faceUp); if(t>=1){ state.moving=null; if(m.onDone) m.onDone(); } }
+      if((state.animating && !state.glAnimating) || state.moving) requestAnimationFrame(draw);
+    }
+
+    function resetHand(){ state.handId++; state.board=[]; state.pot=0; state.street='preflop'; state.curBet=0; state.betThisRound=[0,0]; state.players.forEach(p=>{p.hole=[]; p.folded=false;}); state.lastAggressor=-1; state.message=''; state.dealer=1 - state.dealer; state.deck=newDeck(); shuffle(state.deck); postBlind(state.dealer, SMALL_BLIND); postBlind(1-state.dealer, BIG_BLIND); for(let i=0;i<2;i++){ state.players[state.dealer].hole.push(state.deck.pop()); state.players[1-state.dealer].hole.push(state.deck.pop()); } state.revealed={human:0, ai:0, board:0}; state.acted=[false,false]; state.toAct=state.dealer; state.animating=true; state.streetStartedAt=performance.now(); updateControls(); state.animating=true; draw(); if(canvas.width<10 || canvas.height<10){ setTimeout(startDealAnimation,50);} else { startDealAnimation(); } 
+      // Failsafe: if dealing animation fails, reveal and continue
+      setTimeout(()=>{ try{ if(state.street==='preflop' && state.revealed.human<1 && state.revealed.ai<1){ state.revealed.human=2; state.revealed.ai=2; state.animating=false; draw(); updateControls(); } }catch{} }, 900);
+    }
+    function postBlind(pid, amt){ const p=state.players[pid]; const pay=Math.min(amt, p.stack); p.stack-=pay; state.betThisRound[pid]+=pay; state.pot+=pay; state.curBet=Math.max(state.curBet, state.betThisRound[pid]); }
+    function minRaise(){ const highest=Math.max(state.betThisRound[0], state.betThisRound[1]); const other=Math.min(state.betThisRound[0], state.betThisRound[1]); const lastRaise=Math.max(BIG_BLIND, highest-other); return highest + lastRaise; }
+    function canCheck(pid){ return state.betThisRound[pid]===state.curBet; }
+    function toCall(pid){ return Math.max(0, state.curBet - state.betThisRound[pid]); }
+    function allInCap(pid){ return state.players[pid].stack + state.betThisRound[pid]; }
+    function openAmountRange(pid){ const min=state.curBet===0 ? BIG_BLIND : minRaise(); const effectiveMax=Math.min(allInCap(pid), allInCap(1-pid)); const max=Math.max(0, effectiveMax); return [Math.min(min,max), max]; }
+    function nextPlayerAfter(pid){ return 1-pid; }
+    function bothActedAndEqual(){
+      // In heads-up, when there's been a bet and it's been called (bets equal) and both acted, street ends
+      const allInEqual=isAllInAndEqual(); if(allInEqual) return false;
+      const betsEqual=state.betThisRound[0]===state.betThisRound[1];
+      const bothActed=state.acted[0] && state.acted[1];
+      if(state.curBet===0) return false; // require a bet/call, pure checks handled elsewhere
+      return betsEqual && bothActed;
+    }
+    function maybeEndStreet(){
+      // Preflop: matched blinds after a call ends street
+      if(state.street==='preflop' && state.betThisRound[0]===state.betThisRound[1]){ endStreet(); return true; }
+      if(bothActedAndEqual()){ endStreet(); return true; }
+      if(bothCheckedThisStreet()){ endStreet(); return true; }
+      return false;
+    }
+    function bothCheckedThisStreet(){ return state.curBet===0 && state.acted[0] && state.acted[1]; }
+    function endStreet(){
+      state.street = state.street==='preflop'? 'flop' : state.street==='flop'? 'turn' : state.street==='turn'? 'river' : 'showdown';
+      state.curBet=0; state.betThisRound=[0,0]; state.lastAggressor=-1; state.acted=[false,false];
+      state.toAct = state.dealer===1? 0 : 1; // Out of position acts first postflop
+      if(state.street==='flop'){ state.board.push(state.deck.pop(), state.deck.pop(), state.deck.pop()); state.revealed.board = 3; }
+      else if(state.street==='turn'){ state.board.push(state.deck.pop()); state.revealed.board = Math.max(state.revealed.board, 4); }
+      else if(state.street==='river'){ state.board.push(state.deck.pop()); state.revealed.board = Math.max(state.revealed.board, 5); }
+      if(state.street==='showdown'){ doShowdown(); return; }
+      state.streetStartedAt=performance.now(); state.animating=false; updateControls(); draw();
+      if(!maybeAutoRunout()){
+        if(state.toAct===1 && !state.animating){ try{ aiAct(); }catch{ scheduleAI(0);} }
+      }
+    }
+    }
+    function isAllInAndEqual(){ return (state.players[0].stack===0 || state.players[1].stack===0) && state.betThisRound[0]===state.betThisRound[1]; }
+    function maybeAutoRunout(){ if(state.street==='showdown') return false; if(!isAllInAndEqual()) return false; const startIdx=Math.max(0, Math.min(5, state.board.length)); const remaining=5 - startIdx; if(remaining<=0){ doShowdown(); return true; } const p=positions(); const deckPos={ x: canvas.width/2 + 220*DPR, y: canvas.height/2 - 40*DPR }; state.animating=true; state.glAnimating=!!pixiApp; updateControls(); const queue=[]; for(let i=0;i<remaining;i++){ const idx=startIdx + i; if(state.board.length<=idx){ state.board.push(state.deck.pop()); } queue.push({ idx, card: state.board[idx], to:{ x: p.board[idx][0], y: p.board[idx][1] } }); } function animateNext(){ if(queue.length===0){ state.animating=false; state.glAnimating=false; updateControls(); doShowdown(); return; } const item=queue.shift(); if(pixiApp){ getCardTexture(item.card,true,isSmallScreen()?0.9:1); flyCard(deckPos, item.to, item.card, true, 110, ()=>{ state.revealed.board=Math.max(state.revealed.board, item.idx+1); animateNext(); }); } else { state.moving={ from:deckPos, to:item.to, start:performance.now(), dur:120, card:item.card, faceUp:true, onDone:()=>{ state.revealed.board=Math.max(state.revealed.board, item.idx+1); animateNext(); } }; requestAnimationFrame(draw); } } animateNext(); return true; }
+    function startDealAnimation(){ const p=positions(); const deckPos={ x: canvas.width/2 + 220*DPR, y: canvas.height/2 - 40*DPR }; const seq=[ { who:'human', idx:0, to:{x:p.human.cards[0], y:p.human.cards[1]}, faceUp:true }, { who:'ai', idx:0, to:{x:p.ai.cards[0], y:p.ai.cards[1]}, faceUp:false }, { who:'human', idx:1, to:{x:p.human.cards[2], y:p.human.cards[3]}, faceUp:true }, { who:'ai', idx:1, to:{x:p.ai.cards[2], y:p.ai.cards[3]}, faceUp:false } ]; let i=0; let progressed=false; function step(){ if(i>=seq.length){ state.animating=false; state.glAnimating=false; updateControls(); draw(); if(!maybeAutoRunout()){ if(state.toAct===1 && !state.animating){ try{ aiAct(); }catch{ scheduleAI(0);} } else { maybeAIMove(); } } return; } const s=seq[i++]; const card = s.who==='human'? state.players[0].hole[s.idx] : state.players[1].hole[s.idx]; if(pixiApp){ state.glAnimating=true; getCardTexture(card, !!s.faceUp, isSmallScreen()?0.9:1); flyCard(deckPos, s.to, card, s.faceUp, 120, ()=>{ if(s.who==='human'){ state.revealed.human=Math.max(state.revealed.human, s.idx+1); } else { state.revealed.ai=Math.max(state.revealed.ai, s.idx+1); } progressed=true; setTimeout(()=>{ state.glAnimating=false; draw(); setTimeout(step,10); },0); }); } else { state.moving={ from:deckPos, to:s.to, start:performance.now(), dur:160, card, faceUp:s.faceUp, onDone:()=>{ if(s.who==='human'){ state.revealed.human=Math.max(state.revealed.human, s.idx+1); } else { state.revealed.ai=Math.max(state.revealed.ai, s.idx+1); } progressed=true; draw(); setTimeout(step,10); } }; requestAnimationFrame(draw); } } step(); setTimeout(()=>{ if(!progressed){ state.revealed.human=2; state.revealed.ai=2; state.animating=false; draw(); updateControls(); if(!maybeAutoRunout()){ if(state.toAct===1 && !state.animating){ try{ aiAct(); }catch{ scheduleAI(0);} } else { maybeAIMove(); } } } },1200); }
+    function doShowdown(){ state.street='showdown'; state.revealed.board=Math.max(state.revealed.board,5); state.revealed.ai=2; const alive=[0,1].filter(i=>!state.players[i].folded); const scores=alive.map(i=>({ i, hand: eval7(state.players[i].hole.concat(state.board)) })); let best=scores[0]; for(const s of scores){ if(compareHands(s.hand, best.hand)>0) best=s; } const winners=scores.filter(s=>compareHands(s.hand, best.hand)===0).map(s=>s.i); const prizeEach=Math.floor(state.pot / winners.length); winners.forEach(i=> state.players[i].stack += prizeEach); const loser=alive.find(i=> !winners.includes(i)); const winnerName = winners.length===2 ? 'Both players' : state.players[winners[0]].name; const bestLabel = handLabel(eval7(state.players[winners[0]].hole.concat(state.board))); const oppLabel = loser!=null ? handLabel(eval7(state.players[loser].hole.concat(state.board))) : ''; const resultEl=document.getElementById('result'); const contId='res-continue'; resultEl.style.display='block'; resultEl.innerHTML=(winners.length===2 ? `Split Pot — ${bestLabel}` : `${winnerName} wins ${state.pot} with ${bestLabel}` + (loser!=null? `<br/><span style='font-weight:700;color:#93c5fd'>Beats ${state.players[loser].name}'s ${oppLabel}</span>` : '')) + `<div><button id="${contId}" class="res-btn">Continue</button></div>`; state.message = winners.length===2 ? 'Split Pot' : `${state.players[best.i].name} wins ${state.pot}`; state.pot=0; updateControls(); draw(); let advanced=false; const proceed=()=>{ if(advanced) return; advanced=true; resultEl.style.display='none'; if(state.players[0].stack<=0 || state.players[1].stack<=0){ } else resetHand(); }; const btn=document.getElementById(contId); if(btn) btn.onclick=proceed; setTimeout(()=>{ proceed(); }, 4500); }
+    function playerFold(pid){ state.players[pid].folded=true; const opp=1-pid; state.players[opp].stack += state.pot; state.message=`${state.players[opp].name} wins ${state.pot}`; state.pot=0; state.street='showdown'; updateControls(); draw(); setTimeout(()=>resetHand(), 1200); }
+    function playerCall(pid){ const need=toCall(pid); const p=state.players[pid]; const pay=Math.min(need, p.stack); p.stack-=pay; state.betThisRound[pid]+=pay; state.pot+=pay; state.acted[pid]=true; 
+      if(isAllInAndEqual()){ updateControls(); draw(); maybeAutoRunout(); return; }
+      if(maybeEndStreet()) return;
+      state.toAct=nextPlayerAfter(pid); updateControls(); draw();
+      if(!maybeAutoRunout()) { if(state.toAct===1 && !state.animating){ try{ aiAct(); }catch{ scheduleAI(0); } } }
+    }
+    function playerBetOrRaise(pid, amount){ const [minAmt,maxAmt]=openAmountRange(pid); const target=Math.max(minAmt, Math.min(amount, maxAmt)); const p=state.players[pid]; const put=target - state.betThisRound[pid]; const pay=Math.min(put, p.stack); p.stack-=pay; state.pot+=pay; state.betThisRound[pid]+=pay; state.curBet=Math.max(state.curBet, state.betThisRound[pid]); state.lastAggressor=pid; state.acted=[false,false]; state.acted[pid]=true; state.toAct=nextPlayerAfter(pid); if(isAllInAndEqual()){ updateControls(); draw(); maybeAutoRunout(); return; } if(state.players[1-pid].stack===0 && state.betThisRound[0]===state.betThisRound[1]){ updateControls(); draw(); maybeAutoRunout(); return; } updateControls(); draw(); maybeAIMove(); }
+
+    const foldBtn=document.getElementById('foldBtn');
+    const checkCallBtn=document.getElementById('checkCallBtn');
+    const halfBtn=document.getElementById('halfBtn');
+    const potBtn=document.getElementById('potBtn');
+    const allinBtn=document.getElementById('allinBtn');
+    const betAmt=document.getElementById('betAmt');
+    const betRaiseBtn=document.getElementById('betRaiseBtn');
+    function updateControls(){
+      const pid=0;
+      const meTurn = state.toAct===pid && !state.players[pid].folded && state.street!=='showdown' && !state.animating;
+      const callable=toCall(pid);
+      const disableAll=state.animating || state.street==='showdown';
+      foldBtn.disabled = disableAll || !meTurn;
+      checkCallBtn.textContent = callable>0 ? `Call ${callable}` : 'Check';
+      checkCallBtn.disabled = disableAll || !meTurn;
+      const [minAmt,maxAmt]=openAmountRange(pid);
+      betAmt.value=Math.min(Math.max(Number(betAmt.value)||minAmt, minAmt), maxAmt);
+      halfBtn.disabled = disableAll || !meTurn;
+      potBtn.disabled = disableAll || !meTurn;
+      allinBtn.disabled = disableAll || !meTurn;
+      betRaiseBtn.disabled = disableAll || !meTurn;
+      betRaiseBtn.textContent = state.curBet>0 ? 'Raise' : 'Bet';
+      // If it's bot's turn, act immediately for reliability
+      if(state.toAct===1 && !state.animating && state.street!=='showdown'){
+        try { aiAct(); } catch { scheduleAI(0); }
+      }
+    }
+    foldBtn.addEventListener('click', ()=>{ if(state.toAct!==0) return; playerFold(0); });
+    checkCallBtn.addEventListener('click', ()=>{ if(state.toAct!==0) return; const need=toCall(0); if(need>0){ playerCall(0); } else { state.acted[0]=true; if(maybeEndStreet()) return; state.toAct=1; updateControls(); draw(); try{ aiAct(); }catch{ scheduleAI(0);} } });
+    halfBtn.addEventListener('click', ()=>{ if(state.toAct!==0) return; const potHalf=Math.max(BIG_BLIND, Math.round((state.pot + toCall(0)) * 0.5)); betAmt.value=potHalf; });
+    potBtn.addEventListener('click', ()=>{ if(state.toAct!==0) return; const potSize=state.pot + toCall(0); betAmt.value=Math.max(BIG_BLIND, potSize); });
+    allinBtn.addEventListener('click', ()=>{ if(state.toAct!==0) return; betAmt.value=allInCap(0); });
+    betRaiseBtn.addEventListener('click', ()=>{ if(state.toAct!==0) return; const amt=Number(betAmt.value)||0; playerBetOrRaise(0, amt); });
+
+    // Intelligent fallback to guarantee progress without spewing chips
+    function aiForceAct(){
+      const pid = 1; const need = toCall(pid);
+      const me = state.players[pid]; const hero = state.players[0];
+      const potNow = state.pot;
+      const isFacingAllIn = need >= me.stack;
+      const eq = estimateEquity(me.hole, state.board, hero.hole, 400);
+      if(need>0){
+        const potOdds = need / Math.max(1, (potNow + need));
+        // Be conservative in fallback: fold low equity or big calls
+        if(isFacingAllIn && eq < Math.max(potOdds + 0.15, 0.42)) { playerFold(pid); return; }
+        if(!isFacingAllIn && (need > potNow*0.8) && eq < potOdds + 0.12){ playerFold(pid); return; }
+        playerCall(pid);
+      } else {
+        // No bet to call: check more often, occasional probe
+        const rnd = Math.random();
+        const base = state.street==='flop'? Math.round(potNow*0.5) : Math.round(potNow*0.4);
+        if(rnd < 0.18){ playerBetOrRaise(pid, Math.max(openAmountRange(pid)[0], base)); }
+        else {
+          state.acted[pid]=true;
+          if(bothActedAndEqual() || bothCheckedThisStreet()) endStreet();
+          else { state.toAct=0; updateControls(); draw(); }
+        }
+      }
+    }
+    let aiTimer=null; function scheduleAI(delay){ if(aiTimer){ try{ clearTimeout(aiTimer);}catch{} aiTimer=null; } aiTimer=setTimeout(()=>{ aiTimer=null; if(state && state.toAct===1 && !state.players[1].folded && state.street!=='showdown' && !state.animating){ try{ aiAct(); }catch{ aiForceAct(); } } }, delay); }
+    function maybeAIMove(){ if(state.toAct!==1 || state.players[1].folded || state.street==='showdown') return; try { aiAct(); } catch { aiForceAct(); } }
+    function preflopScore(hole){ if(!hole||hole.length<2) return 0; const r1=hole[0].r, r2=hole[1].r; const hi=Math.max(r1,r2), lo=Math.min(r1,r2); const suited=hole[0].s===hole[1].s; const gap=Math.abs(r1-r2)-1; let score; if(hi===lo){ score=0.84 + (hi-2)*0.01; } else { score=(hi/14)*0.45 + (lo/14)*0.25; if(suited) score+=0.06; if(gap<=0) score+=0.05; else if(gap===1) score+=0.03; else if(gap>=3) score-=0.06; if(hi===14 && lo>=10) score+=0.04; } return Math.max(0, Math.min(1, score)); }
+    function aiAct(){
+      const pid=1; const me=state.players[pid]; const hero=state.players[0];
+      const need=toCall(pid);
+      if(me.stack===0){ state.acted[pid]=true; if(bothActedAndEqual() || bothCheckedThisStreet()) endStreet(); else { state.toAct=0; updateControls(); draw(); } return; }
+      const potNow=state.pot;
+      const isFacingAllIn = need >= me.stack;
+      const iters = isFacingAllIn ? 3500 : (state.street==='river'? 1400 : state.street==='turn'? 1100 : state.street==='flop'? 900 : 800);
+      const eq=estimateEquity(me.hole, state.board, hero.hole, iters);
+      const minR=openAmountRange(pid)[0];
+      const posAdv = (state.dealer===pid && (state.street==='flop'||state.street==='turn'||state.street==='river')) ? 0.02 : 0.0;
+      const strong=eq>(0.6 - posAdv);
+      const medium=eq>(0.48 - posAdv);
+      const weak=eq<(0.36 - posAdv);
+      const rnd=Math.random();
+      if(need>0){
+        const potOdds = need / Math.max(1, (potNow + need));
+        let edge = state.street==='preflop'? 0.08 : state.street==='flop'? 0.05 : state.street==='turn'? 0.035 : 0.03;
+        if(isFacingAllIn) edge += 0.05;
+        if(state.street==='preflop' && isFacingAllIn){ const pf=preflopScore(me.hole); if(pf<0.62){ playerFold(pid); return; } }
+        // Never call off with tiny equity
+        if(isFacingAllIn && eq < Math.max(potOdds + 0.15, 0.45)) { playerFold(pid); return; }
+        // Large calls require extra edge
+        if(!isFacingAllIn && (need > potNow*0.8) && eq < potOdds + 0.12){ playerFold(pid); return; }
+        const mustHave = potOdds + edge;
+        if(eq < mustHave){ playerFold(pid); return; }
+        if(!isFacingAllIn && me.stack>minR){
+          if(strong && rnd < 0.72){
+            const mult = state.street==='preflop'? 3.2 : state.street==='flop'? 2.4 : 1.8;
+            const size = Math.min(allInCap(pid), Math.max(minR, Math.round((need + potNow) * (mult*0.38))));
+            playerBetOrRaise(pid, size); return;
+          }
+          if(medium && rnd < 0.38){
+            const size = Math.min(allInCap(pid), Math.max(minR, Math.round((potNow + need) * 0.7)));
+            playerBetOrRaise(pid, size); return;
+          }
+          if(!weak && potOdds < 0.28 && rnd < 0.28){
+            const size = Math.min(allInCap(pid), Math.max(minR, Math.round((potNow + need) * 0.6)));
+            playerBetOrRaise(pid, size); return;
+          }
+        }
+        playerCall(pid); if(isAllInAndEqual()) { updateControls(); draw(); maybeAutoRunout(); } return;
+      } else {
+        const base = state.street==='preflop'? 5 : state.street==='flop'? Math.round(potNow*0.72) : Math.round(potNow*0.62);
+        const wasAggressor = state.lastAggressor === pid;
+        const cbetChance = state.street==='flop' ? 0.66 : state.street==='turn' ? 0.5 : state.street==='river' ? 0.34 : 0.0;
+        if(strong){ const size = Math.min(allInCap(pid), Math.max(minR, base)); playerBetOrRaise(pid, size); return; }
+        const smallBluffChance = state.street==='river'? 0.12 : 0.28;
+        if(medium && rnd<0.5){ const size = Math.min(allInCap(pid), Math.max(minR, Math.round(base*0.78))); playerBetOrRaise(pid, size); return; }
+        else if((!weak && rnd<smallBluffChance) || (wasAggressor && rnd < cbetChance)){
+          const size = Math.min(allInCap(pid), Math.max(minR, Math.round(base*0.58)));
+          playerBetOrRaise(pid, size); return;
+        }
+        state.acted[pid]=true; if(bothActedAndEqual() || bothCheckedThisStreet()) endStreet(); else { state.toAct=0; updateControls(); draw(); }
+      }
+    }
+
+    // Kick off
+    function showLog(){}
+    resize();
+    resetHand();
+    // Render heartbeat to avoid stalled frames on some mobile browsers
+    try { if (window.__renderTicker) clearInterval(window.__renderTicker); } catch {}
+    window.__renderTicker = setInterval(() => { try{ draw(); }catch{} }, 500);
+    // AI watchdog to guarantee action progresses if any trigger is missed
+    try { if (window.__aiWatchdog) clearInterval(window.__aiWatchdog); } catch {}
+    window.__aiWatchdog = setInterval(() => {
+      try {
+        if (!state) return;
+        if (state.toAct===1 && !state.animating && state.street!=='showdown') {
+          aiAct();
+        }
+      } catch {}
+    }, 350);
+    // Street-closure watchdog to ensure progression
+    try { if (window.__streetWatchdog) clearInterval(window.__streetWatchdog); } catch {}
+    window.__streetWatchdog = setInterval(() => {
+      try {
+        if (!state || state.animating || state.street==='showdown') return;
+        const bothActed = state.acted[0] && state.acted[1];
+        const betsEqual = state.betThisRound[0] === state.betThisRound[1];
+        if ((state.curBet>0 && betsEqual && bothActed) || (state.curBet===0 && bothActed)) {
+          endStreet();
+          return;
+        }
+        // If bot's turn lingers too long, force an action
+        if (state.toAct===1) {
+          const lingerMs = performance.now() - (state.streetStartedAt||performance.now());
+          if (lingerMs > 800 && !state.animating) {
+            aiAct();
+            return;
+          }
+        }
+        // Reveal consistency safeguard
+        if (state.street==='flop' && state.board.length>=3 && state.revealed.board<3) {
+          state.revealed.board=3; draw();
+        }
+      } catch {}
+    }, 400);
+  })();
+  </script>
+</body>
+</html>
+
+

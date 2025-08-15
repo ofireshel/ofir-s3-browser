@@ -1,0 +1,18 @@
+name = "poker-multiplayer"
+main = "worker/index.js"
+compatibility_date = "2024-01-01"
+
+[[durable_objects.bindings]]
+name = "LOBBY"
+class_name = "PokerLobby"
+
+[[durable_objects.bindings]]
+name = "GAMES"
+class_name = "PokerGame"
+
+[vars]
+FRONTEND_URL = "https://lexiorbit.pages.dev"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["PokerLobby", "PokerGame"]
