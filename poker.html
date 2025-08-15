@@ -1360,32 +1360,26 @@ function positions(){
             if (assignedPlayerId === 0) {
               console.log('Game master: initializing hand and syncing');
               resetHand();
-              // Ensure hands are revealed to appropriate extent for sync (backs for opponent)
+              // Reveal extents for initial layout
               state.revealed.human = 2;
               state.revealed.ai = 2;
               state.revealed.board = 0;
               state.animating = false; state.glAnimating = false;
+              // Send full sync to opponent
               if (gameWs && gameWs.readyState === WebSocket.OPEN) {
-                gameWs.send(JSON.stringify({
-                  type: 'player_action',
-                  gameId: gameId,
-                  playerId: myPlayerId,
-                  action: {
-                    type: 'sync_state',
-                    gameState: {
-                      players: state.players,
-                      pot: state.pot,
-                      curBet: state.curBet,
-                      toAct: state.toAct,
-                      street: state.street,
-                      board: state.board,
-                      deck: state.deck,
-                      acted: state.acted,
-                      betThisRound: state.betThisRound
-                    }
-                  }
-                }));
+                sendAction('sync_state');
               }
+            } else {
+              // Non-master: request a fresh sync if not dealt within 800ms
+              setTimeout(() => {
+                try{
+                  const haveCards = Array.isArray(state.players?.[getMyId()]?.hole) && state.players[getMyId()].hole.length===2;
+                  if (!haveCards && gameWs && gameWs.readyState === WebSocket.OPEN) {
+                    console.log('Requesting state sync from master');
+                    sendAction('request_sync');
+                  }
+                }catch{}
+              }, 800);
             }
           }
           
@@ -1490,6 +1484,13 @@ function positions(){
       
       switch(action.type) {
         case 'sync_state':
+        case 'request_sync':
+          // If I'm master, send full sync
+          if (assignedPlayerId === 0 && gameWs && gameWs.readyState === WebSocket.OPEN) {
+            console.log('Opponent requested sync; sending');
+            sendAction('sync_state');
+          }
+          break;
           // Handle initial state sync
           console.log('Received initial game state sync');
           const newState = action.gameState;

@@ -803,16 +803,20 @@ function getOpponentInfo(game, playerId) {
 }
 
 function initializeGame(game) {
-  // Basic game initialization
+  // Basic game initialization with blinds committed so clients render bets
+  const SMALL_BLIND = 1, BIG_BLIND = 2;
   game.gameState = {
     dealer: 0,
     players: [
-      { stack: 1000, folded: false },
-      { stack: 1000, folded: false }
+      { stack: 1000 - SMALL_BLIND, folded: false, bet: SMALL_BLIND },
+      { stack: 1000 - BIG_BLIND, folded: false, bet: BIG_BLIND }
     ],
-    pot: 0,
+    pot: SMALL_BLIND + BIG_BLIND,
     street: 'preflop',
-    toAct: 0
+    toAct: 0,
+    curBet: BIG_BLIND,
+    betThisRound: [SMALL_BLIND, BIG_BLIND],
+    acted: [false, true]
   };
   
   // Notify both players
