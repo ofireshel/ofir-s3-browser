@@ -381,11 +381,13 @@ export class PokerGame {
     const actorId = connection.playerId;
     const seatIndex = this.getSeatIndex(actorId);
     if (seatIndex === -1) return;
-
-    // Validate turn
-    if (this.gameState.toAct !== seatIndex || this.gameState.street === 'showdown') {
-      // Ignore out-of-turn actions silently
-      return;
+    const g = this.gameState;
+    const isShowdown = g.street === 'showdown';
+    const isBettingAction = ['fold','check','call','bet_raise'].includes(action.type);
+    // Only enforce turn order for betting actions during active streets
+    if (isBettingAction) {
+      if (isShowdown) return; // no betting at showdown
+      if (g.toAct !== seatIndex) return; // out-of-turn betting
     }
 
     try {
@@ -401,14 +403,47 @@ export class PokerGame {
           break;
         case 'bet_raise':
           this.applyBetRaise(seatIndex, Number(action.amount||0));
-          break;
+        break;
         case 'continue':
           // Player acknowledges showdown; when both have continued (or timeout), start next hand
           if (this.gameState && this.gameState.street === 'showdown') {
             this.awaiting[seatIndex] = true;
-            const canContinue = this.gameState.players[0].stack > 0 && this.gameState.players[1].stack > 0;
-            if (canContinue && this.awaiting[0] && this.awaiting[1]) {
+            const g = this.gameState;
+            const bothReady = this.awaiting[0] && this.awaiting[1];
+            const bothHaveChips = g.players[0].stack > 0 && g.players[1].stack > 0;
+            if (bothReady) {
               if (this.nextHandTimer) { try { clearTimeout(this.nextHandTimer); } catch {} this.nextHandTimer = null; }
+              if (bothHaveChips) {
+                this.startNewHand();
+                this.broadcastState();
+              } else {
+                // Game over previously. Reset stacks evenly and restart a new match.
+                const totalChips = (g.players[0].stack || 0) + (g.players[1].stack || 0) + (g.pot || 0);
+                const half = Math.floor(totalChips / 2);
+                g.players[0].stack = half;
+                g.players[1].stack = totalChips - half;
+                g.pot = 0;
+                g.gameOver = false;
+                g.gameOverWinner = '';
+                this.startNewHand();
+                this.broadcastState();
+              }
+            }
+          }
+          break;
+        case 'play_again':
+          // Both players want to restart a fresh match from lobby-like state
+          if (this.gameState && this.gameState.street === 'showdown') {
+            this.awaiting[seatIndex] = true;
+            if (this.awaiting[0] && this.awaiting[1]) {
+              if (this.nextHandTimer) { try { clearTimeout(this.nextHandTimer); } catch {} this.nextHandTimer = null; }
+              const g = this.gameState;
+              // Rebuild initial state preserving seat order and player identities
+              const p0 = { id: g.players[0].id, name: g.players[0].name };
+              const p1 = { id: g.players[1].id, name: g.players[1].name };
+              this.gameState = this.createInitialGameState(p0, p1);
+              this.started = true;
+              this.awaiting = [false, false];
               this.startNewHand();
               this.broadcastState();
             }
@@ -518,17 +553,17 @@ export class PokerGame {
     g.dealer = 1 - g.dealer;
     // New deck
     g.deck = this.newShuffledDeck();
-    // Post blinds
-    this.postBlind(g.dealer, g.smallBlind);
-    this.postBlind(1 - g.dealer, g.bigBlind);
-    // Deal hole cards (dealer gets first, heads-up alternating)
+    // Post blinds (heads-up variant per request): dealer posts BIG blind, opponent posts SMALL blind
+    this.postBlind(g.dealer, g.bigBlind);
+    this.postBlind(1 - g.dealer, g.smallBlind);
+    // Deal hole cards (alternating)
     for (let i = 0; i < 2; i++) {
       g.players[g.dealer].hole.push(g.deck.pop());
       g.players[1 - g.dealer].hole.push(g.deck.pop());
     }
-    // Preflop: small blind (dealer) acts first; big blind has not acted yet
+    // Preflop: small blind (non-dealer) acts first so dealer acts last
     g.acted = [false, false];
-    g.toAct = g.dealer;
+    g.toAct = 1 - g.dealer;
   }
 
   postBlind(pid, amt) {
@@ -605,6 +640,7 @@ export class PokerGame {
     g.players[opp].stack += g.pot;
     g.message = `${g.players[opp].name} wins ${g.pot}`;
     g.pot = 0;
+    // Do NOT reveal additional runout on fold; keep already-dealt community cards as-is
     g.street = 'showdown';
   }
 
@@ -612,11 +648,11 @@ export class PokerGame {
     const g = this.gameState; if (!g) return;
     if (this.toCall(pid) > 0) return; // invalid check
     g.acted[pid] = true;
-    // Preflop special: if big blind checks after small blind called to match,
+    // Preflop special: if big blind (dealer) checks after small blind called to match,
     // then end street (flop). If big blind raises, handled in applyBetRaise.
     if (g.street === 'preflop') {
-      const smallBlindSeat = g.dealer;
-      const bigBlindSeat = 1 - g.dealer;
+      const smallBlindSeat = 1 - g.dealer;
+      const bigBlindSeat = g.dealer;
       const blindsMatchedToBB = (g.betThisRound[smallBlindSeat] === g.betThisRound[bigBlindSeat]) && (g.betThisRound[bigBlindSeat] >= g.bigBlind);
       const bbChecked = pid === bigBlindSeat && blindsMatchedToBB;
       if (bbChecked) {
@@ -639,11 +675,11 @@ export class PokerGame {
     p.stack -= pay; g.betThisRound[pid] += pay; g.pot += pay;
     g.curBet = Math.max(g.curBet, g.betThisRound[0], g.betThisRound[1]);
     g.acted[pid] = true;
-    // Special preflop logic: ONLY when SB calls to exactly match the big blind (no raises yet),
-    // the BB gets an option to check or raise before dealing the flop.
+    // Special preflop logic: ONLY when SB (non-dealer) calls to exactly match the big blind (no raises yet),
+    // the BB (dealer) gets an option to check or raise before dealing the flop.
     if (g.street === 'preflop') {
-      const smallBlindSeat = g.dealer;
-      const bigBlindSeat = 1 - g.dealer;
+      const smallBlindSeat = 1 - g.dealer;
+      const bigBlindSeat = g.dealer;
       const smallBlindBet = g.betThisRound[smallBlindSeat];
       const bigBlindBet = g.betThisRound[bigBlindSeat];
       const sbMatchedExactlyBB = (smallBlindBet === g.bigBlind) && (bigBlindBet === g.bigBlind);
@@ -690,8 +726,11 @@ export class PokerGame {
 
   autoRunout() {
     const g = this.gameState; if (!g) return;
-    // Reveal remaining community cards
-    while (g.board.length < 5) { g.board.push(g.deck.pop()); }
+    // Reveal remaining community cards only if both players are still alive (no fold)
+    const alive = [0,1].filter(i => !g.players[i].folded);
+    if (alive.length === 2) {
+      while (g.board.length < 5) { g.board.push(g.deck.pop()); }
+    }
     this.doShowdown();
   }
 
@@ -791,10 +830,10 @@ export class PokerGame {
   viewFor(myIdx) {
     const g = this.gameState;
     const clone = JSON.parse(JSON.stringify(g));
-    // Hide opponent hole cards until showdown, but keep placeholders so UI shows backs
+    // Hide opponent hole cards until showdown. Use nulls so clients don't accidentally render a specific card.
     const oppIdx = 1 - myIdx;
     if (clone.street !== 'showdown') {
-      clone.players[oppIdx].hole = [ { r: 14, s: 0 }, { r: 14, s: 0 } ];
+      clone.players[oppIdx].hole = [ null, null ];
     }
     // Only reveal the community cards up to street
     const revealCount = clone.street === 'preflop' ? 0 : clone.street === 'flop' ? 3 : clone.street === 'turn' ? 4 : 5;

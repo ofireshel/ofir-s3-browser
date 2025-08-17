@@ -1,0 +1,12 @@
+:root{--bg1:#0f172a;--bg2:#0b1220;--text:#e2e8f0;--muted:#94a3b8}
+html,body{height:100%;margin:0;font-family:'Segoe UI',Arial,sans-serif}
+body{background:radial-gradient(120% 120% at 50% 20%,var(--bg1),var(--bg2));color:var(--text)}
+.wrap{min-height:100%;display:grid;place-items:center;padding:32px}
+.card{width:min(980px,92vw);background:rgba(14,23,42,.9);border:1px solid #334155;border-radius:16px;padding:28px;box-shadow:0 20px 80px rgba(0,0,0,.35);text-align:center}
+.card h1{margin:0 0 10px;font-size:clamp(24px,4vw,42px);font-weight:900;background:linear-gradient(45deg,#60a5fa,#a78bfa);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.card p{margin:0 0 18px;color:var(--muted);font-size:clamp(14px,2.2vw,18px)}
+.image-frame{border:2px dashed #475569;border-radius:14px;padding:10px;background:rgba(2,6,23,.55)}
+.image-frame img{display:block;width:100%;height:auto;border-radius:10px}
+@media (max-width:560px){.card{padding:20px}}
+
+

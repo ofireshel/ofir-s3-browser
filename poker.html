@@ -49,18 +49,7 @@
   </style>
 </head>
 <body>
-  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-9669595312999180"
-       crossorigin="anonymous"></script>
-  <!-- main -->
-  <ins class="adsbygoogle"
-       style="display:block"
-       data-ad-client="ca-pub-9669595312999180"
-       data-ad-slot="4945715008"
-       data-ad-format="auto"
-       data-full-width-responsive="true"></ins>
-  <script>
-       (adsbygoogle = window.adsbygoogle || []).push({});
-  </script>
+  
   <div class="wrap">
     <header>
       <h1>Heads-Up Poker</h1>
@@ -87,6 +76,18 @@
     </div>
     <footer></footer>
   </div>
+  <!-- AdSense moved to bottom to avoid pushing content on mobile -->
+  <div style="padding:10px 12px;">
+    <ins class="adsbygoogle"
+         style="display:block"
+         data-ad-client="ca-pub-9669595312999180"
+         data-ad-slot="4945715008"
+         data-ad-format="auto"
+         data-full-width-responsive="true"></ins>
+  </div>
+  <script>
+       (adsbygoogle = window.adsbygoogle || []).push({});
+  </script>
   <script>
   (function(){
     'use strict';
@@ -633,7 +634,12 @@ function positions(){
       drawTable();
       const p=positions();
       ctx.fillStyle='#e2e8f0'; ctx.textAlign='center'; ctx.textBaseline='middle';
-      ctx.font = `${(isSmallScreen()?16:14)*DPR}px Segoe UI`;
+      const nameSizePx = (isSmallScreen()?16:14) * 1.5 * DPR; // 50% larger font
+      ctx.save();
+      ctx.shadowColor = 'rgba(0,0,0,0.55)';
+      ctx.shadowBlur = 6*DPR;
+      ctx.shadowOffsetY = 2*DPR;
+      ctx.font = `${nameSizePx}px Segoe UI`;
       // In multiplayer, show player names from their own perspective
       if (isMultiplayer) {
         const myId = getMyId();
@@ -649,6 +655,7 @@ function positions(){
         ctx.fillText(`${state.players[0].name}`, p.human.name[0], p.human.name[1]);
         ctx.fillText(`${state.players[1].name}`, p.ai.name[0], p.ai.name[1]);
       }
+      ctx.restore();
       // Big chip stacks below names
       // Total chip stacks (left of each player's cards); tighter on small screens and align labels with bet amounts
       const alignYHuman = isSmallScreen()? (p.human.cards[1] - 36*DPR) : undefined;
@@ -664,14 +671,22 @@ function positions(){
         drawChipBank(p.human.cards[0] - (isSmallScreen()? 64:110)*DPR, p.human.cards[1], state.players[0].stack, alignYHuman);
         drawChipBank(p.ai.cards[0] - (isSmallScreen()? 70:120)*DPR, p.ai.cards[1], state.players[1].stack, alignYAI);
       }
-      // Dealer button next to player's name
-      const dn = state.dealer===0 ? p.human.name : p.ai.name;
-      const dpos = state.dealer===0 ? [dn[0]-(isSmallScreen()? 78:62)*DPR, dn[1]] : [dn[0]-(isSmallScreen()? 78:62)*DPR, dn[1]];
-      drawDealerButton(dpos[0], dpos[1]);
+      // Dealer button next to the actual dealer's name from server state; align with perspective
+      if (isMultiplayer) {
+        const myId = getMyId();
+        const isDealerMe = state.dealer === myId;
+        const dn = isDealerMe ? p.human.name : p.ai.name;
+        const dpos = [dn[0]-(isSmallScreen()? 78:62)*DPR, dn[1]];
+        drawDealerButton(dpos[0], dpos[1]);
+      } else {
+        const dn = state.dealer===0 ? p.human.name : p.ai.name;
+        const dpos = [dn[0]-(isSmallScreen()? 78:62)*DPR, dn[1]];
+        drawDealerButton(dpos[0], dpos[1]);
+      }
       ctx.fillStyle='#fbbf24'; ctx.font = `${18*DPR}px Arial Black`; ctx.fillText(`Pot: ${state.pot}`, p.pot[0], p.pot[1]);
       for(let i=0;i<5;i++){
         const [x,y]=p.board[i]; const c=state.board[i];
-        const show = i < state.revealed.board;
+        const show = !!c && (i < state.revealed.board);
         drawCard(x,y, c||{r:14,s:0}, show);
       }
       if (isMultiplayer) {
@@ -703,9 +718,13 @@ function positions(){
         const showOpponentCards = state.street === 'showdown';
         if(state.players[opponentId].hole[0]) {
           drawCard(p.ai.cards[0], p.ai.cards[1], state.players[opponentId].hole[0], showOpponentCards);
+        } else {
+          drawCard(p.ai.cards[0], p.ai.cards[1], {r:14,s:0}, false);
         }
         if(state.players[opponentId].hole[1]) {
           drawCard(p.ai.cards[2], p.ai.cards[3], state.players[opponentId].hole[1], showOpponentCards);
+        } else {
+          drawCard(p.ai.cards[2], p.ai.cards[3], {r:14,s:0}, false);
         }
       } else {
         // Single player mode: original logic
@@ -800,7 +819,9 @@ function positions(){
       state.street = state.street==='preflop'? 'flop' : state.street==='flop'? 'turn' : state.street==='turn'? 'river' : 'showdown';
       console.log(`Street changed from ${oldStreet} to ${state.street}`);
       
-      state.curBet=0; state.betThisRound=[0,0]; state.lastAggressor=-1; state.acted=[false,false]; state.toAct = state.dealer===1? 0 : 1;
+      state.curBet=0; state.betThisRound=[0,0]; state.lastAggressor=-1; state.acted=[false,false];
+      // In heads-up postflop, the non-dealer acts first; mirror server
+      state.toAct = state.dealer===1? 0 : 1;
       
       if(state.street==='flop'){ 
         console.log('Dealing flop - adding 3 cards to board');
@@ -951,9 +972,10 @@ function positions(){
     }
     function doShowdown(){
       if (state.overlayShown) { updateControls(); draw(); return; }
-      // Ensure we are in showdown state and everything is revealed properly
+      // Ensure we are in showdown state; reveal only cards actually dealt
       state.street = 'showdown';
-      state.revealed.board = Math.max(state.revealed.board, 5);
+      // Keep already-dealt community cards visible; do not force additional reveals on folds
+      // state.revealed.board is managed by server push flow; leave it untouched here
       state.revealed.ai = 2;
       const alive = [0,1].filter(i=>!state.players[i].folded);
       const scores = alive.map(i=>({ i, hand: eval7(state.players[i].hole.concat(state.board)) }));
@@ -978,9 +1000,9 @@ function positions(){
         ? `Split Pot — ${bestLabel}`
         : `${winnerName} wins ${state.pot} with ${bestLabel}` + (loser!=null? `<br/><span style='font-weight:700;color:#93c5fd'>Beats ${state.players[loser].name}'s ${oppLabel}</span>` : ''));
       if (state.gameOver) {
-        msgHtml += `<br/><span style="color:#ef4444;font-weight:900;">Game over — ${state.gameOverWinner} won</span>`;
+        msgHtml += `<br/><span style=\"color:#ef4444;font-weight:900;\">Game over! ${state.gameOverWinner} won the game!</span>`;
       }
-      resultEl.innerHTML = msgHtml + `<div><button id="${contId}" class="res-btn">Continue</button></div>`;
+      resultEl.innerHTML = msgHtml + `<div style=\"margin-top:10px;display:flex;gap:10px;justify-content:center\">${state.gameOver? `<button id=\"res-replay\" class=\"res-btn\">Play again?</button>`:`<button id=\"${contId}\" class=\"res-btn\">Continue</button>`}</div>`;
       state.message = winners.length===2 ? 'Split Pot' : `${state.players[best.i].name} wins ${state.pot}`;
       state.pot=0;
       // Mark showdown start for watchdog
@@ -1003,7 +1025,9 @@ function positions(){
         try { stopShowdownWatchdog(); } catch{}
       };
       const btn=document.getElementById(contId); if(btn) btn.onclick=proceed;
-      setTimeout(()=>{ proceed(); }, 5000);
+      const replay=document.getElementById('res-replay');
+      if(replay){ replay.onclick=()=>{ if(isMultiplayer){ try{ sendAction('play_again'); }catch{} } resultEl.style.display='none'; } }
+      setTimeout(()=>{ if(!state.gameOver && btn) proceed(); }, 5000);
       // Safety: ensure progression even if overlay click is missed
       if(isMultiplayer){ /* server advances next hand */ }
     }
@@ -1027,10 +1051,16 @@ function positions(){
         resultEl.style.display='block';
         try { resultEl.style.zIndex = '9999'; } catch{}
         if (!state.overlayShown) { state.overlayShown = true; }
-        resultEl.innerHTML = (winners.length===2
+        let msgHtml = (winners.length===2
           ? `Split Pot — ${bestLabel}`
-          : `${winnerName} wins ${state.message ? state.message.replace(/.*wins\\s+/, '') : ''} with ${bestLabel}` + (loser!=null? `<br/><span style='font-weight:700;color:#93c5fd'>Beats ${state.players[loser].name}'s ${oppLabel}</span>` : ''))
-          + `<div><button id=\"${contId}\" class=\"res-btn\">Continue</button></div>`;
+          : `${winnerName} wins ${state.message ? state.message.replace(/.*wins\\s+/, '') : ''} with ${bestLabel}` + (loser!=null? `<br/><span style='font-weight:700;color:#93c5fd'>Beats ${state.players[loser].name}'s ${oppEval?describeHand(oppEval):''}</span>` : ''));
+        if (state.gameOver) {
+          msgHtml += `<br/><span style=\"color:#ef4444;font-weight:900;\">Game over! ${state.gameOverWinner} won the game!</span>`;
+        }
+        const controlsHtml = state.gameOver
+          ? `<button id=\"res-replay\" class=\"res-btn\">Play again?</button>`
+          : `<button id=\"${contId}\" class=\"res-btn\">Continue</button>`;
+        resultEl.innerHTML = msgHtml + `<div style=\"margin-top:10px;display:flex;gap:10px;justify-content:center\">${controlsHtml}</div>`;
         updateControls(); draw();
         try { startShowdownWatchdog(); } catch{}
         let advanced=false; const proceed=()=>{
@@ -1039,7 +1069,9 @@ function positions(){
           try { stopShowdownWatchdog(); } catch{}
         };
         const btn=document.getElementById(contId); if(btn) btn.onclick=proceed;
-        setTimeout(()=>{ proceed(); }, 5000);
+        const replay=document.getElementById('res-replay');
+        if(replay){ replay.onclick=()=>{ try{ sendAction('play_again'); }catch{} resultEl.style.display='none'; } }
+        setTimeout(()=>{ if(!state.gameOver && btn) proceed(); }, 5000);
       }catch{}
     }
 

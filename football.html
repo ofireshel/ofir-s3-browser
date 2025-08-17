@@ -1,8 +1,6 @@
 <!doctype html>
 <html>
 <head>
-  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-9669595312999180"
-     crossorigin="anonymous"></script>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
   <title>Arcade Football</title>
@@ -36,26 +34,14 @@
     .actbtn { width: 90px; height: 52px; font-size: 15px; }
     .padbtn:active, .actbtn:active { transform: translateY(1px); }
     @media (max-width: 820px) {
-      #dock { left: auto !important; right: 12px !important; bottom: calc(80px + env(safe-area-inset-bottom)) !important; transform: none !important; gap: 8px !important; }
-      #pad { grid-template-columns:48px 48px 48px !important; grid-template-rows:48px 48px 48px !important; gap:4.4px !important; }
-      .padbtn, .actbtn { width: 48px; height: 48px; font-size: 14px; }
-      .actbtn { width: 72px; height: 42px; font-size: 13px; }
+      #dock { left: 50% !important; right: auto !important; bottom: calc(80px + env(safe-area-inset-bottom)) !important; transform: translateX(-50%) !important; gap: 16px !important; }
+      #pad { grid-template-columns:58px 58px 58px !important; grid-template-rows:58px 58px 58px !important; gap:8px !important; }
+      .padbtn { width: 58px; height: 58px; font-size: 16px; }
     }
   </style>
 </head>
 <body>
-  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-9669595312999180"
-       crossorigin="anonymous"></script>
-  <!-- main -->
-  <ins class="adsbygoogle"
-       style="display:block"
-       data-ad-client="ca-pub-9669595312999180"
-       data-ad-slot="4945715008"
-       data-ad-format="auto"
-       data-full-width-responsive="true"></ins>
-  <script>
-       (adsbygoogle = window.adsbygoogle || []).push({});
-  </script>
+  
   <div class="wrap">
     <header>
       <a href="games.html">← All Games</a>
@@ -76,7 +62,7 @@
           <button data-key="ArrowUp" class="padbtn">W</button>
           <div></div>
           <button data-key="ArrowLeft" class="padbtn">A</button>
-          <button data-key="Shift" class="padbtn">⏩</button>
+          <div></div>
           <button data-key="ArrowRight" class="padbtn">D</button>
           <div></div>
           <button data-key="ArrowDown" class="padbtn">S</button>
@@ -108,9 +94,9 @@
     const CONTACT_PAD = 8; // require visible overlap before tackle triggers
     let CARRIER_MULT = 3.0; // ball carrier speed multiplier (uniform across devices)
 
-    const BASE_SPEED = 0.5; // px/frame (50% slower)
-    const SPRINT_MULT = 1.15;
-    const DEF_SPEED = 0.6; // 50% slower defense
+    const BASE_SPEED = 0.6; // px/frame (slightly faster pace)
+    const SPRINT_MULT = 1.2;
+    const DEF_SPEED = 0.62; // defense tuned to keep up fairly
     const PASS_SPEED = 2.4; // slower passes
     let ACCEL = 0.12;      // player acceleration smoothing (mobile override in resize)
     const DEF_ACCEL = 0.10;  // defender acceleration smoothing
@@ -120,6 +106,7 @@
     const PASS_LEAD = 12; // defenders lead prediction
     const INTERCEPT_LEAD = 10;
     const CONTAIN_MARGIN_X = 70;
+    const LEAF_SPEED = 4.5; // px/frame for fruit projectiles (50% faster)
 
     // State
     const state = {
@@ -141,6 +128,12 @@
       tackling: false,
       scored: false,
       sprint: false,
+      // short burst ability
+      dashMs: 0,
+      dashCooldownMs: 0,
+      dashVec: { vx: 0, vy: 1 },
+      dashing: false,
+      projectiles: [],
       mouse: {x: W/2, y:H/2},
       lastMoveDir: {x:0, y:-1},
     };
@@ -159,6 +152,7 @@
       state.tackling = false;
       state.scored = false;
       state.hasBall = 'qb';
+      state.projectiles = [];
       if(typeof newSpot === 'number') state.ballOnYard = Math.max(1, Math.min(99, newSpot));
       state.lineOfScrimmageYard = state.ballOnYard;
       const cx = (LEFT_HASH+RIGHT_HASH)/2;
@@ -230,6 +224,8 @@
     function startPlay(){
       if(state.gameOver) return;
       if(!state.snapped){
+        // clear any lingering projectiles from prior down
+        try{ state.projectiles = []; }catch(_){ state.projectiles = []; }
         state.playActive = true; state.snapped = true;
         state.playStartMs = performance.now();
         playWhistle();
@@ -238,10 +234,15 @@
     }
 
     window.addEventListener('keydown', (e)=>{
-      if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','w','a','s','d','W','A','S','D',' ' ,'Shift','c','C','r','R'].includes(e.key)) e.preventDefault();
+      const handledKeys = ['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','w','a','s','d','W','A','S','D',' ' ,'Shift','c','C','e','E','r','R'];
+      if(handledKeys.includes(e.key)) e.preventDefault();
       keys.add(e.key);
+      // Start automatically when any movement key is pressed
+      const movementKeys = ['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','w','a','s','d','W','A','S','D'];
+      if(movementKeys.includes(e.key) && !state.snapped){ startPlay(); }
       if(e.key===' ') { startPlay(); }
       if(e.key==='c' || e.key==='C') state.activeReceiver = (state.activeReceiver+1)%state.receivers.length;
+      if(e.key==='e' || e.key==='E') tryDash();
       if(e.key==='r' || e.key==='R') { state.gameOver = false; resetPlay(25); }
     });
     window.addEventListener('keyup', (e)=>{
@@ -275,8 +276,14 @@
       el.addEventListener('touchcancel', (e)=>{ e.preventDefault(); up(); });
     }
     document.querySelectorAll('#pad .padbtn').forEach(btn=>{
-      bindPressButton(btn, btn.getAttribute('data-key'));
+      // Ensure any touch/click on a direction starts the play immediately
+      const key = btn.getAttribute('data-key');
+      bindPressButton(btn, key);
+      btn.addEventListener('click', (e)=>{ e.preventDefault(); if(!state.snapped) startPlay(); });
+      btn.addEventListener('touchstart', (e)=>{ e.preventDefault(); if(!state.snapped) startPlay(); }, {passive:false});
     });
+    // dash button (mobile)
+    try { const dashBtn = document.getElementById('dashBtn'); if(dashBtn){ dashBtn.addEventListener('click', (e)=>{ e.preventDefault(); tryDash(); }); } } catch(_){ }
     // passing removed
 
     function getMoveVector(){
@@ -327,6 +334,7 @@
       for(const d of state.defenders){
         if(d.reactDelay==null){ d.reactDelay = Math.random()*(DEF_REACT_MAX_MS-DEF_REACT_MIN_MS)+DEF_REACT_MIN_MS; d.reactAccum=0; }
         d.reactAccum += 16; // approx per frame
+        d.leafCooldown = (d.leafCooldown||0) - 16;
         let reactNow = d.reactAccum >= d.reactDelay;
         // Pursue current ball carrier directly with slight predictive lead
         const cx = qb.x; const cy = qb.y;
@@ -362,6 +370,39 @@
         d.vy += (uy*speed - d.vy) * DEF_ACCEL * accelMult;
         d.x += d.vx; d.y += d.vy;
         if(reactNow){ d.reactAccum = 0; d.reactDelay = Math.random()*(DEF_REACT_MAX_MS-DEF_REACT_MIN_MS)+DEF_REACT_MIN_MS; }
+        // Only some fruits are shooters at the start of a down; lazily assign per-play flag
+        if(d.canShoot == null){ d.canShoot = Math.random() < 0.6; } // 60% will shoot this down
+        // Shoot leaf toward carrier for apples, oranges, pears (that canShoot)
+        if(state.snapped && d.canShoot && d.leafCooldown<=0 && (d.type==='apple' || d.type==='orange' || d.type==='pear')){
+          const carrier = (state.hasBall==='qb') ? state.qb : (typeof state.hasBall==='number' ? state.receivers[state.hasBall] : state.qb);
+          // Smart aim: bias aim slightly toward player's current velocity when chasing from behind
+          let aimX = carrier.x, aimY = carrier.y;
+          const toPlayerX = carrier.x - d.x, toPlayerY = carrier.y - d.y;
+          const facing = (toPlayerX*(state.qb.vx||0) + toPlayerY*(state.qb.vy||0));
+          if(facing > 0){ // roughly behind the player
+            aimX += state.qb.vx * 28; aimY += state.qb.vy * 28;
+          }
+          const dx = aimX - d.x, dy = aimY - d.y; const dl = Math.hypot(dx,dy)||1;
+          if(dl < 560){
+            const ux = (dx/dl), uy = (dy/dl);
+            // spawn slightly ahead of the shooter to avoid instant self-collision
+            const startOffset = DEFENDER_R + 4;
+            const proj = { x:d.x + ux*startOffset, y:d.y + uy*startOffset, vx:ux*LEAF_SPEED, vy:uy*LEAF_SPEED, ttl: 2500, shooter:d, age:0 };
+            // 35% chance to add a swirling component perpendicular to direction
+            if(Math.random() < 0.35){
+              const perpX = -uy, perpY = ux; // unit perpendicular
+              proj.swirl = {
+                px: perpX,
+                py: perpY,
+                t: 0,
+                rate: 0.008 + Math.random()*0.012, // radians per ms factor
+                mag: 0.8 + Math.random()*1.2 // px/frame amplitude
+              };
+            }
+            state.projectiles.push(proj);
+            d.leafCooldown = 900 + Math.random()*1200;
+          }
+        }
       }
       // After moving defenders, resolve blocking so fruits impede each other
       resolveDefenderBlocking();
@@ -385,15 +426,28 @@
 
     function updateQB(){
       const m = getMoveVector();
+      // If dashing, override movement to force a quick retreat "down" the field
+      let useVec = m;
       let speed = BASE_SPEED * (m.sprint ? SPRINT_MULT : 1);
+      if(state.dashing){
+        useVec = state.dashVec; // predetermined random vector with positive Y
+        speed = BASE_SPEED * 10; // x10 pace
+      }
       if(state.hasBall==='qb') speed *= CARRIER_MULT; // carrier bonus
       state.sprint = m.sprint;
       // Smooth acceleration
-      state.qb.vx += (m.vx * speed - state.qb.vx) * ACCEL;
-      state.qb.vy += (m.vy * speed - state.qb.vy) * ACCEL;
+      const prevY_qb = state.qb.y;
+      state.qb.vx += (useVec.vx * speed - state.qb.vx) * ACCEL;
+      state.qb.vy += (useVec.vy * speed - state.qb.vy) * ACCEL;
       if(Math.hypot(m.vx, m.vy) > 0.01){ state.lastMoveDir = { x: m.vx, y: m.vy }; }
       state.qb.x = clamp(state.qb.x + state.qb.vx, 40, W-40);
       state.qb.y = clamp(state.qb.y + state.qb.vy, 30, H-30);
+      // During dash, never gain yards (do not move upward on the screen)
+      if(state.dashing && state.qb.y < prevY_qb){ state.qb.y = prevY_qb; }
+      // Stop dash when reaching screen limits
+      if(state.dashing){
+        if(state.qb.y >= H-30 || state.qb.x <= 40 || state.qb.x >= W-40){ state.dashing=false; state.dashMs=0; }
+      }
       if(state.hasBall==='qb') placeBallOnQB();
     }
 
@@ -422,10 +476,18 @@
         const r = state.receivers[state.hasBall];
         // Allow control of the receiver who caught the ball (carrier boost)
         const m = getMoveVector();
-        const speed = BASE_SPEED * (m.sprint ? SPRINT_MULT : 1) * CARRIER_MULT;
-        r.vx = m.vx * speed; r.vy = m.vy * speed;
+        let useVec = m;
+        let speed = BASE_SPEED * (m.sprint ? SPRINT_MULT : 1);
+        if(state.dashing){ useVec = state.dashVec; speed = BASE_SPEED * 10; }
+        const prevY_r = r.y;
+        speed *= CARRIER_MULT;
+        r.vx = useVec.vx * speed; r.vy = useVec.vy * speed;
         r.x = clamp(r.x + r.vx, 40, W-40);
         r.y = clamp(r.y + r.vy, 30, H-30);
+        if(state.dashing && r.y < prevY_r){ r.y = prevY_r; }
+        if(state.dashing){
+          if(r.y >= H-30 || r.x <= 40 || r.x >= W-40){ state.dashing=false; state.dashMs=0; }
+        }
         state.ballPos.x = r.x; state.ballPos.y = r.y-6;
       }
     }
@@ -443,6 +505,8 @@
         showGameOver(msg);
         return;
       }
+      // Clear all leaves at the end of a play
+      try{ state.projectiles = []; }catch(_){ state.projectiles = []; }
       let gained = spotYardsExact - state.lineOfScrimmageYard;
       if(reason==='incomplete') gained = 0; // incomplete pass: no yardage
       // Reduce yards to go but never reset to a new first down
@@ -464,6 +528,7 @@
       else if(typeof state.hasBall==='number'){ const r = state.receivers[state.hasBall]; carrier = r; cx = r.x; cy = r.y; }
       else return;
       // Tackle only on visible overlap (strict contact)
+      if(state.dashMs>0){ if(cy<=30){ whistleDead('touchdown'); } return; }
       for(const d of state.defenders){
         if(distance(d,{x:cx,y:cy}) <= PLAYER_R + DEFENDER_R - CONTACT_PAD){
           whistleDead('tackle'); return;
@@ -537,10 +602,10 @@
         ctx.beginPath(); ctx.moveTo(LEFT_HASH-10, py); ctx.lineTo(LEFT_HASH, py); ctx.stroke();
         ctx.beginPath(); ctx.moveTo(RIGHT_HASH, py); ctx.lineTo(RIGHT_HASH+10, py); ctx.stroke();
       }
-      // End zones with distinct color
-      ctx.fillStyle = 'rgba(96,165,250,0.20)';
+      // End zones in red
+      ctx.fillStyle = 'rgba(239,68,68,0.30)';
       ctx.fillRect(40, H-30, W-80, 30);
-      ctx.fillStyle = 'rgba(250,204,21,0.20)';
+      ctx.fillStyle = 'rgba(220,38,38,0.30)';
       ctx.fillRect(40, 0, W-80, 30);
       ctx.restore();
     }
@@ -561,6 +626,15 @@
         ctx.fillText(label, d.x, d.y);
       }
       // Ball ellipse suppressed (shown via emoji on runner)
+      ctx.restore();
+    }
+
+    function drawProjectiles(){
+      if(!state.projectiles || state.projectiles.length===0) return;
+      ctx.save();
+      ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.font = '34px "Segoe UI Emoji", "Apple Color Emoji", Noto Color Emoji, sans-serif';
+      for(const p of state.projectiles){ ctx.fillText('🍃', p.x, p.y); }
       ctx.restore();
     }
 
@@ -590,6 +664,9 @@
       if(state.playActive){
         state.clockMs = Math.max(0, state.clockMs - dt);
       }
+      // ability timers
+      state.dashMs = Math.max(0, state.dashMs - dt);
+      if(state.dashing && state.dashMs<=0){ state.dashing=false; }
       if(state.snapped){
         // Enforce max play duration (20s) to always end a down
         if(state.playStartMs && performance.now() - state.playStartMs > 20000){ whistleDead('tackle'); return; }
@@ -597,6 +674,47 @@
         updateReceivers();
         updateDefenders();
         updateBall();
+        // update projectiles
+        if(state.projectiles && state.projectiles.length){
+          const keep = [];
+          const carrier = (state.hasBall==='qb') ? state.qb : (typeof state.hasBall==='number' ? state.receivers[state.hasBall] : state.qb);
+          for(const p of state.projectiles){
+            p.age = (p.age||0) + dt;
+            // swirling offset if present
+            if(p.swirl){
+              p.swirl.t += dt;
+              const s = Math.sin(p.swirl.t * p.swirl.rate) * p.swirl.mag;
+              p.x += p.vx + p.swirl.px * s;
+              p.y += p.vy + p.swirl.py * s;
+            } else {
+              p.x += p.vx; p.y += p.vy;
+            }
+            p.ttl -= dt;
+            if(p.x<30 || p.x>W-30 || p.y<10 || p.y>H-10 || p.ttl<=0) continue;
+            if(distance({x:p.x,y:p.y}, carrier) <= PLAYER_R){ whistleDead('tackle'); continue; }
+            // collide with defenders and bounce
+            let bounced = false;
+            for(const d of state.defenders){
+              const dist = distance({x:p.x,y:p.y}, d);
+              // ignore the shooter for a brief grace period to ensure effectiveness
+              if(d === p.shooter && p.age < 160) { continue; }
+              if(dist <= DEFENDER_R){
+                // simple elastic reflection off normal
+                const nx = (p.x - d.x) / (dist||0.0001);
+                const ny = (p.y - d.y) / (dist||0.0001);
+                const dot = p.vx*nx + p.vy*ny;
+                p.vx = p.vx - 2*dot*nx;
+                p.vy = p.vy - 2*dot*ny;
+                // dampen slightly
+                p.vx *= 0.9; p.vy *= 0.9;
+                bounced = true;
+                break;
+              }
+            }
+            keep.push(p);
+          }
+          state.projectiles = keep;
+        }
         checkTackles();
       }
     }
@@ -608,6 +726,9 @@
       tick(dt);
       drawField();
       drawPlayers();
+      drawProjectiles();
+      // small HUD showing ability cooldown
+      try{ drawAbilityHud(); }catch(_){ }
       requestAnimationFrame(loop);
     }
 
@@ -629,6 +750,10 @@
       DEFENDER_R = isMobile ? Math.round(22 * 0.7) : 22;
       CARRIER_MULT = 3.0; // 3x on all devices
       ACCEL = isMobile ? 0.18 : 0.12; // slightly quicker acceleration on mobile
+      // Ensure the top red end zone remains visible on mobile by reserving extra space
+      if(isMobile){
+        PX_PER_YARD = (H - 80) / FIELD_LEN_YARDS; // add 20px margin at top
+      }
     }
     resizeCanvas();
     window.addEventListener('resize', resizeCanvas);
@@ -737,6 +862,8 @@
       el.style.webkitTextFillColor = '';
       el.style.color = '#e2e8f0';
       // Render gradient only on the message span, not on the container
+      // Hide control dock while in game over to let the player choose
+      const dock = document.getElementById('dock'); if(dock) dock.style.display='none';
       el.innerHTML = `<span style="display:block;background:linear-gradient(180deg,#ff4d4d,#b91c1c);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;font-weight:900;">${msg}</span><div style="margin-top:10px;display:flex;gap:12px;justify-content:center"><button id="playAgainYes" class="actbtn" aria-label="Play again" style="-webkit-text-fill-color:#e2e8f0;color:#e2e8f0;">Play again</button><button id="playAgainNo" class="actbtn" aria-label="Back to menu" style="-webkit-text-fill-color:#e2e8f0;color:#e2e8f0;">Nah I'm good</button></div>`;
       el.style.display = 'block';
       el.style.opacity = '1';
@@ -754,6 +881,8 @@
           state.hasBall = 'qb';
           resetPlay(25);
           el.style.display = 'none';
+          // Restore the control dock after restarting
+          if(dock) dock.style.display='flex';
         });
       }
       if (noBtn) {
@@ -761,6 +890,28 @@
           window.location.href = 'games.html';
         });
       }
+    }
+    function drawAbilityHud(){
+      const x=W-130, y=10, w=110, h=8;
+      ctx.save();
+      ctx.fillStyle='rgba(0,0,0,0.35)';
+      ctx.fillRect(x-6,y-6,w+12, h+12);
+      // Dash cooldown bar
+      ctx.fillStyle='#334155'; ctx.fillRect(x,y,w,h);
+      const frac = 1 - Math.min(1, state.dashCooldownMs/2500);
+      ctx.fillStyle='#22c55e'; ctx.fillRect(x,y,w*frac,h);
+      ctx.restore();
+    }
+    function tryDash(){
+      if(!state.snapped){ startPlay(); }
+      if(state.dashMs>0||state.dashCooldownMs>0) return;
+      // pick a diagonal retreat direction with positive Y and horizontal component
+      const dir = (Math.random() < 0.5) ? -1 : 1; // left or right
+      const vx = dir * 0.7;
+      const vy = 0.7; // strong downward
+      state.dashVec = { vx, vy };
+      state.dashing = true;
+      state.dashMs=360; state.dashCooldownMs=2200;
     }
   })();
   </script>
