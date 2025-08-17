@@ -1,6 +1,8 @@
 <!doctype html>
 <html>
 <head>
+  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-9669595312999180"
+     crossorigin="anonymous"></script>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
   <title>Poker Lobby</title>
@@ -94,13 +96,14 @@
     .name-form {
       background: var(--panel); border: 1px solid var(--border);
       border-radius: 12px; padding: 20px; margin-bottom: 20px;
+      display: flex; flex-direction: column; gap: 12px;
     }
-    .form-group { margin-bottom: 16px; }
-    .form-group label { display: block; margin-bottom: 6px; font-weight: 600; }
+    .form-group { margin-bottom: 0; display: flex; flex-direction: column; gap: 6px; }
+    .form-group label { display: block; font-weight: 600; }
     .form-group input {
       width: 100%; padding: 10px 12px; border-radius: 8px;
-      border: 1px solid var(--border); background: rgba(15,23,42,0.6);
-      color: var(--text); font-size: 16px;
+      border: 1px solid var(--border); background: rgba(15,23,42,0.9);
+      color: var(--text); font-size: 16px; box-sizing: border-box;
     }
     .form-group input:focus {
       outline: none; border-color: var(--accent1);
@@ -143,6 +146,18 @@
   </style>
 </head>
 <body>
+  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-9669595312999180"
+       crossorigin="anonymous"></script>
+  <!-- main -->
+  <ins class="adsbygoogle"
+       style="display:block"
+       data-ad-client="ca-pub-9669595312999180"
+       data-ad-slot="4945715008"
+       data-ad-format="auto"
+       data-full-width-responsive="true"></ins>
+  <script>
+       (adsbygoogle = window.adsbygoogle || []).push({});
+  </script>
   <div class="wrap">
     <header>
       <a href="games.html" class="back-btn">← Back</a>
@@ -153,7 +168,7 @@
         <h2>Join the Lobby</h2>
         <div class="form-group">
           <label for="player-name">Your Name</label>
-          <input type="text" id="player-name" placeholder="Enter your name" maxlength="20">
+          <input type="text" id="player-name" placeholder="Enter your name" maxlength="10">
         </div>
         <button class="join-btn" onclick="joinLobby()">Join Lobby</button>
       </div>
@@ -201,15 +216,15 @@
 
     function joinLobby() {
       const nameInput = document.getElementById('player-name');
-      const name = nameInput.value.trim();
+      const name = nameInput.value.trim().slice(0, 10);
       
       if (!name) {
         alert('Please enter your name');
         return;
       }
       
-      if (name.length > 20) {
-        alert('Name too long (max 20 characters)');
+      if (name.length > 10) {
+        alert('Name too long (max 10 characters)');
         return;
       }
 

@@ -1,6 +1,8 @@
 <!doctype html>
 <html>
 <head>
+  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-9669595312999180"
+     crossorigin="anonymous"></script>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
   <title>Heads-Up Poker</title>
@@ -47,6 +49,18 @@
   </style>
 </head>
 <body>
+  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-9669595312999180"
+       crossorigin="anonymous"></script>
+  <!-- main -->
+  <ins class="adsbygoogle"
+       style="display:block"
+       data-ad-client="ca-pub-9669595312999180"
+       data-ad-slot="4945715008"
+       data-ad-format="auto"
+       data-full-width-responsive="true"></ins>
+  <script>
+       (adsbygoogle = window.adsbygoogle || []).push({});
+  </script>
   <div class="wrap">
     <header>
       <h1>Heads-Up Poker</h1>
@@ -262,7 +276,9 @@
         moving: null, // {from:{x,y}, to:{x,y}, start, dur, card, faceUp}
         animating: false,
         glAnimating: false,
-      acted: [false, false]
+      acted: [false, false],
+      overlayShown: false,
+      handAdvanced: false
     };
 
     // Deck
@@ -336,6 +352,27 @@
     function handLabel(h){
       const names=['High Card','Pair','Two Pair','Three of a Kind','Straight','Flush','Full House','Four of a Kind','Straight Flush'];
       return names[h.cat] || 'Hand';
+    }
+
+    // Detailed hand description using eval7 output (cat + kickers)
+    function rankWord(r){
+      const map={11:'Jack',12:'Queen',13:'King',14:'Ace'}; if(r<=10) return String(r); return map[r]||String(r); }
+    function pluralRank(r){ const w=rankWord(r); return (r===6? '6':'') && (w==="6"? '6s': (w.match(/\d/)? w+'s' : (w+ 's'))); }
+    function describeHand(ev){
+      if(!ev) return 'Hand';
+      const cat=ev.cat, k=ev.kickers||[];
+      switch(cat){
+        case 0: return `High Card ${rankWord(k[0]||0)}`;
+        case 1: return `Pair of ${pluralRank(k[0]||0)}`;
+        case 2: return `Two Pair (${rankWord(k[0]||0)}s and ${rankWord(k[1]||0)}s)`;
+        case 3: return `Three of a Kind (${rankWord(k[0]||0)}s)`;
+        case 4: return `Straight to ${rankWord(k[0]||0)}`;
+        case 5: return `Flush (${rankWord(k[0]||0)} high)`;
+        case 6: return `Full House (${rankWord(k[0]||0)}s over ${rankWord(k[1]||0)}s)`;
+        case 7: return `Four of a Kind (${rankWord(k[0]||0)}s)`;
+        case 8: return `Straight Flush to ${rankWord(k[0]||0)}`;
+        default: return handLabel(ev);
+      }
     }
 
     // Monte Carlo equity estimation vs 1 opponent
@@ -706,6 +743,8 @@ function positions(){
       state.acted = [false, false];
       state.acted[1 - state.dealer] = true;
       state.toAct = state.dealer;
+      state.overlayShown = false;
+      state.handAdvanced = false;
       state.animating = true;
       updateControls();
       state.animating=true; draw();
@@ -789,6 +828,8 @@ function positions(){
       }
       
       console.log(`endStreet complete. Board now has ${state.board.length} cards, toAct=${state.toAct}`);
+      // Multiplayer: server authoritative, no client sync
+      if(isMultiplayer){ /* no-op */ }
       updateControls(); draw(); if(!maybeAutoRunout()) {
         if(!isMultiplayer && state.toAct===1 && !state.animating){
           try { aiAct(); } catch { scheduleAI(0); }
@@ -798,6 +839,7 @@ function positions(){
       }
       // Safety: if still on this street without action after short delay, force AI act
       if(!isMultiplayer && state.toAct===1){ setTimeout(()=>{ try{ if(state.toAct===1 && state.street!== 'showdown' && !state.animating) aiAct(); }catch{ scheduleAI(100);} }, 200); }
+      if(isMultiplayer && assignedPlayerId===0){ try{ sendAction('sync_state'); }catch{} }
     }
 
     function isAllInAndEqual(){
@@ -828,7 +870,12 @@ function positions(){
         queue.push({ idx, card: state.board[idx], to: { x: p.board[idx][0], y: p.board[idx][1] } });
       }
       function animateNext(){
-        if(queue.length===0){ state.animating=false; state.glAnimating=false; updateControls(); doShowdown(); return; }
+        if(queue.length===0){
+          state.animating=false; state.glAnimating=false; updateControls();
+          // Multiplayer: server authoritative, no client sync
+          if(isMultiplayer){ /* no-op */ }
+          doShowdown(); return;
+        }
         const item = queue.shift();
         if(pixiApp){
           getCardTexture(item.card, true, isSmallScreen()?0.9:1);
@@ -903,6 +950,7 @@ function positions(){
       }, 1200);
     }
     function doShowdown(){
+      if (state.overlayShown) { updateControls(); draw(); return; }
       // Ensure we are in showdown state and everything is revealed properly
       state.street = 'showdown';
       state.revealed.board = Math.max(state.revealed.board, 5);
@@ -915,27 +963,130 @@ function positions(){
       winners.forEach(i=> state.players[i].stack += prizeEach);
       const loser = alive.find(i=> !winners.includes(i));
       const winnerName = winners.length===2 ? 'Both players' : state.players[winners[0]].name;
-      const bestLabel = handLabel(eval7(state.players[winners[0]].hole.concat(state.board)));
-      const oppLabel = loser!=null ? handLabel(eval7(state.players[loser].hole.concat(state.board))) : '';
+      const bestEval = eval7(state.players[winners[0]].hole.concat(state.board));
+      const oppEval = loser!=null ? eval7(state.players[loser].hole.concat(state.board)) : null;
+      const bestLabel = describeHand(bestEval);
+      const oppLabel = loser!=null ? describeHand(oppEval) : '';
       const resultEl = document.getElementById('result');
       const contId = 'res-continue';
       resultEl.style.display='block';
-      resultEl.innerHTML = (winners.length===2
+      try { resultEl.style.zIndex = '9999'; } catch{}
+      if (!state.overlayShown) {
+        state.overlayShown = true;
+      }
+      let msgHtml = (winners.length===2
         ? `Split Pot — ${bestLabel}`
-        : `${winnerName} wins ${state.pot} with ${bestLabel}` + (loser!=null? `<br/><span style='font-weight:700;color:#93c5fd'>Beats ${state.players[loser].name}'s ${oppLabel}</span>` : ''))
-        + `<div><button id="${contId}" class="res-btn">Continue</button></div>`;
+        : `${winnerName} wins ${state.pot} with ${bestLabel}` + (loser!=null? `<br/><span style='font-weight:700;color:#93c5fd'>Beats ${state.players[loser].name}'s ${oppLabel}</span>` : ''));
+      if (state.gameOver) {
+        msgHtml += `<br/><span style="color:#ef4444;font-weight:900;">Game over — ${state.gameOverWinner} won</span>`;
+      }
+      resultEl.innerHTML = msgHtml + `<div><button id="${contId}" class="res-btn">Continue</button></div>`;
       state.message = winners.length===2 ? 'Split Pot' : `${state.players[best.i].name} wins ${state.pot}`;
-      state.pot=0; updateControls(); draw();
+      state.pot=0;
+      // Mark showdown start for watchdog
+      try { state.showdownStartedAt = performance.now(); } catch{}
+      // Multiplayer: server-authoritative, no client sync
+      if(isMultiplayer){ /* no-op */ }
+      updateControls(); draw();
+      try { startShowdownWatchdog(); } catch{}
       let advanced=false; const proceed=()=>{
         if(advanced) return; advanced=true; resultEl.style.display='none';
-        if(state.players[0].stack<=0 || state.players[1].stack<=0){ showLog('Game Over'); }
-        else resetHand();
+        if(state.players[0].stack<=0 || state.players[1].stack<=0){
+          showLog('Game Over');
+          if(isMultiplayer){ try{ sendAction('sync_state'); }catch{} }
+          return;
+        }
+        // Multiplayer: server advances hand; client waits for push
+        if(!isMultiplayer){
+          resetHand();
+        }
+        try { stopShowdownWatchdog(); } catch{}
       };
       const btn=document.getElementById(contId); if(btn) btn.onclick=proceed;
       setTimeout(()=>{ proceed(); }, 5000);
+      // Safety: ensure progression even if overlay click is missed
+      if(isMultiplayer){ /* server advances next hand */ }
     }
-    function playerFold(pid){ state.players[pid].folded=true; const opp=1-pid; state.players[opp].stack += state.pot; state.message=`${state.players[opp].name} wins ${state.pot}`; state.pot=0; state.street='showdown'; if(pid===1) showAIAction('folded'); showLog(state.message); updateControls(); draw(); setTimeout(()=>resetHand(), 1400); }
+
+    // Display-only showdown overlay for the non-acting client when receiving a synced showdown state.
+    function showPassiveShowdownOverlay(){
+      if (state.overlayShown) return;
+      try{
+        const alive = [0,1].filter(i=>!state.players[i].folded);
+        const scores = alive.map(i=>({ i, hand: eval7(state.players[i].hole.concat(state.board)) }));
+        let best = scores[0]; for(const s of scores){ if(compareHands(s.hand, best.hand)>0) best=s; }
+        const winners = scores.filter(s=>compareHands(s.hand, best.hand)===0).map(s=>s.i);
+        const winnerName = winners.length===2 ? 'Both players' : state.players[winners[0]].name;
+        const bestEval = eval7(state.players[winners[0]].hole.concat(state.board));
+        const loser = alive.find(i=> !winners.includes(i));
+        const oppEval = loser!=null ? eval7(state.players[loser].hole.concat(state.board)) : null;
+        const bestLabel = describeHand(bestEval);
+        const oppLabel = loser!=null ? describeHand(oppEval) : '';
+        const resultEl = document.getElementById('result');
+        const contId = 'res-continue';
+        resultEl.style.display='block';
+        try { resultEl.style.zIndex = '9999'; } catch{}
+        if (!state.overlayShown) { state.overlayShown = true; }
+        resultEl.innerHTML = (winners.length===2
+          ? `Split Pot — ${bestLabel}`
+          : `${winnerName} wins ${state.message ? state.message.replace(/.*wins\\s+/, '') : ''} with ${bestLabel}` + (loser!=null? `<br/><span style='font-weight:700;color:#93c5fd'>Beats ${state.players[loser].name}'s ${oppLabel}</span>` : ''))
+          + `<div><button id=\"${contId}\" class=\"res-btn\">Continue</button></div>`;
+        updateControls(); draw();
+        try { startShowdownWatchdog(); } catch{}
+        let advanced=false; const proceed=()=>{
+          if(advanced) return; advanced=true; resultEl.style.display='none';
+          if(isMultiplayer){ try{ sendAction('continue'); }catch{} }
+          try { stopShowdownWatchdog(); } catch{}
+        };
+        const btn=document.getElementById(contId); if(btn) btn.onclick=proceed;
+        setTimeout(()=>{ proceed(); }, 5000);
+      }catch{}
+    }
+
+    // Simple overlay for fold outcome
+    function showFoldOverlay(winnerId, prize){
+      if (state.overlayShown) return;
+      try{
+        const resultEl = document.getElementById('result');
+        const contId = 'res-continue';
+        resultEl.style.display='block';
+        try { resultEl.style.zIndex = '9999'; } catch{}
+        if (!state.overlayShown) { state.overlayShown = true; }
+        const winnerName = state.players[winnerId]?.name || 'Player';
+        resultEl.innerHTML = `${winnerName} wins ${prize} (fold)` + `<div><button id=\"${contId}\" class=\"res-btn\">Continue</button></div>`;
+        updateControls(); draw();
+        try { startShowdownWatchdog(); } catch{}
+        let advanced=false; const proceed=()=>{
+          if(advanced) return; advanced=true; resultEl.style.display='none';
+          if(state.players[0].stack<=0 || state.players[1].stack<=0){
+            showLog('Game Over');
+            return;
+          }
+          if(state.handAdvanced) return;
+          state.handAdvanced = true;
+          if(!isMultiplayer){
+            resetHand();
+          }
+          try { stopShowdownWatchdog(); } catch{}
+        };
+        const btn=document.getElementById(contId); if(btn) btn.onclick=proceed;
+        setTimeout(()=>{ proceed(); }, 5000);
+      }catch{}
+    }
+
+    function playerFold(pid){
+      if(isMultiplayer){
+        // In multiplayer, we don't mutate state here. Send-only wrapper above will call sendAction.
+        return;
+      }
+      state.players[pid].folded=true; const opp=1-pid; const prize=state.pot; state.players[opp].stack += prize; state.message=`${state.players[opp].name} wins ${prize}`; state.pot=0; state.street='showdown'; if(pid===1) showAIAction('folded'); updateControls(); draw();
+      showFoldOverlay(opp, prize);
+    }
     function playerCall(pid){
+      if(isMultiplayer){
+        // Server authoritative; do nothing here (send-only wrapper will handle)
+        return;
+      }
       console.log(`ORIGINAL playerCall: pid=${pid}, before state:`, {
         betThisRound: [...state.betThisRound],
         curBet: state.curBet,
@@ -996,6 +1147,10 @@ function positions(){
       }
     }
     function playerBetOrRaise(pid, amount){
+      if(isMultiplayer){
+        // Server authoritative; do nothing here (send-only wrapper will handle)
+        return;
+      }
       const [minAmt, maxAmt]=openAmountRange(pid);
       const target = Math.max(minAmt, Math.min(amount, maxAmt));
       const p=state.players[pid]; const put = target - state.betThisRound[pid];
@@ -1091,11 +1246,18 @@ function positions(){
       if(need>0) {
         console.log('Calling with amount:', need);
         playerCall(myId); 
+        // playerCall wrapper will send action after state changes
       } else { 
         console.log('Checking (no amount to call)');
+        if (isMultiplayer) { 
+          sendAction('check'); 
+          return; 
+        }
         state.acted[myId]=true; 
-        if(bothActedAndEqual() || bothCheckedThisStreet()) { endStreet(); return; }
-        else { 
+        if(bothActedAndEqual() || bothCheckedThisStreet()) { 
+          endStreet(); 
+          return; 
+        } else { 
           state.toAct = myId === 0 ? 1 : 0; 
           updateControls(); 
           draw(); 
@@ -1325,6 +1487,63 @@ function positions(){
     
     function handleGameMessage(data) {
       switch(data.type) {
+        case 'game_state':
+          if (data.state) {
+            console.log('Applying server-authoritative game_state');
+            const myId = assignedPlayerId ?? 0;
+            const oppId = 1 - myId;
+            const myName = state.players[myId]?.name || (decodeURIComponent(myPlayerName)||'You');
+            const oppName = state.players[oppId]?.name || (decodeURIComponent(opponentName)||'Opponent');
+            // Copy full state from server
+            if (typeof data.state.handId === 'number') state.handId = data.state.handId;
+            if (typeof data.state.dealer === 'number') state.dealer = data.state.dealer;
+            state.pot = Number(data.state.pot||0);
+            state.curBet = Number(data.state.curBet||0);
+            state.toAct = typeof data.state.toAct==='number' ? data.state.toAct : 0;
+            state.street = data.state.street || 'preflop';
+            if (Array.isArray(data.state.players) && data.state.players.length===2) {
+              for (let i=0;i<2;i++){
+                state.players[i].stack = Number(data.state.players[i]?.stack ?? state.players[i].stack);
+                state.players[i].folded = !!data.state.players[i]?.folded;
+                // Copy holes as provided by server view (opponent may be masked before showdown)
+                state.players[i].hole = Array.isArray(data.state.players[i]?.hole) ? JSON.parse(JSON.stringify(data.state.players[i].hole)) : [];
+              }
+            }
+            state.board = Array.isArray(data.state.board) ? JSON.parse(JSON.stringify(data.state.board)) : [];
+            state.betThisRound = Array.isArray(data.state.betThisRound) ? [Number(data.state.betThisRound[0]||0), Number(data.state.betThisRound[1]||0)] : [0,0];
+            state.acted = Array.isArray(data.state.acted) ? [!!data.state.acted[0], !!data.state.acted[1]] : [false,false];
+            state.gameOver = !!data.state.gameOver;
+            state.gameOverWinner = data.state.gameOverWinner || '';
+            // Names from our perspective
+            state.players[myId].name = myName; state.players[oppId].name = oppName;
+            // Reveal flags aligned to street for consistent rendering
+            if (state.street === 'preflop') {
+              state.revealed.human = 2; state.revealed.ai = 0; state.revealed.board = 0;
+            } else if (state.street === 'flop') {
+              state.revealed.human = 2; state.revealed.ai = 0; state.revealed.board = Math.max(state.revealed.board, 3);
+            } else if (state.street === 'turn') {
+              state.revealed.human = 2; state.revealed.ai = 0; state.revealed.board = Math.max(state.revealed.board, 4);
+            } else if (state.street === 'river') {
+              state.revealed.human = 2; state.revealed.ai = 0; state.revealed.board = Math.max(state.revealed.board, 5);
+            } else if (state.street === 'showdown') {
+              state.revealed.human = 2; state.revealed.ai = 2; state.revealed.board = 5;
+            }
+            // Reset overlay flags when not in showdown so the next result can display
+            if (state.street !== 'showdown') {
+              try {
+                state.overlayShown = false;
+                state.handAdvanced = false;
+                const resultEl = document.getElementById('result');
+                if (resultEl) resultEl.style.display = 'none';
+              } catch {}
+            }
+            state.animating = false; state.glAnimating = false;
+            updateControls(); draw();
+            if (state.street === 'showdown') {
+              try { showPassiveShowdownOverlay(); } catch{}
+            }
+          }
+          break;
         case 'game_ready':
           // Set assigned player ID from server
           if (data.myPlayerId !== undefined) {
@@ -1355,39 +1574,13 @@ function positions(){
           }
           console.log(`Game ready with ${data.playersConnected} players, I am player ${assignedPlayerId}`);
           
-          // When both players connected in multiplayer, game master starts the hand and syncs state
-          if (isMultiplayer && data.playersConnected === 2) {
-            if (assignedPlayerId === 0) {
-              console.log('Game master: initializing hand and syncing');
-              resetHand();
-              // Reveal extents for initial layout
-              state.revealed.human = 2;
-              state.revealed.ai = 2;
-              state.revealed.board = 0;
-              state.animating = false; state.glAnimating = false;
-              // Send full sync to opponent
-              if (gameWs && gameWs.readyState === WebSocket.OPEN) {
-                sendAction('sync_state');
-              }
-            } else {
-              // Non-master: request a fresh sync if not dealt within 800ms
-              setTimeout(() => {
-                try{
-                  const haveCards = Array.isArray(state.players?.[getMyId()]?.hole) && state.players[getMyId()].hole.length===2;
-                  if (!haveCards && gameWs && gameWs.readyState === WebSocket.OPEN) {
-                    console.log('Requesting state sync from master');
-                    sendAction('request_sync');
-                  }
-                }catch{}
-              }, 800);
-            }
-          }
+          // Server-authoritative: do not locally start/sync; wait for game_state frames
           
           updateControls();
           draw();
           break;
         case 'opponent_action':
-          handleOpponentAction(data.action);
+          // Deprecated in server-authoritative flow; ignore
           break;
         case 'game_ended':
           showLog(`Game ended: ${data.reason}`);
@@ -1408,157 +1601,7 @@ function positions(){
       }
     }
     
-    function handleOpponentAction(action) {
-      const opponentId = getOpponentId();
-      const myId = getMyId();
-      
-      console.log('Received opponent action:', action.type, action);
-      
-      // First, sync game state if provided (for all actions except sync_state)
-      if (action.gameState && action.type !== 'sync_state') {
-        console.log('Syncing game state from opponent action');
-        
-        // Preserve our player names
-        const myName = state.players[myId].name;
-        const oppName = state.players[opponentId].name;
-        
-        // Check if this state sync includes a street progression
-        const oldStreet = state.street;
-        const newStreet = action.gameState.street;
-        const streetChanged = oldStreet !== newStreet;
-        
-        console.log(`State sync: street change from ${oldStreet} to ${newStreet}, changed=${streetChanged}`);
-        
-        // Update game state with opponent's state (including deck for card sync)
-        state.players = JSON.parse(JSON.stringify(action.gameState.players));
-        state.pot = action.gameState.pot;
-        state.curBet = action.gameState.curBet;
-        state.toAct = action.gameState.toAct;
-        state.street = action.gameState.street;
-        state.board = JSON.parse(JSON.stringify(action.gameState.board));
-        if (action.gameState.acted) {
-          state.acted = JSON.parse(JSON.stringify(action.gameState.acted));
-        }
-        if (action.gameState.deck) {
-          state.deck = JSON.parse(JSON.stringify(action.gameState.deck));
-        }
-        if (action.gameState.betThisRound) {
-          state.betThisRound = JSON.parse(JSON.stringify(action.gameState.betThisRound));
-        }
-        
-        // Restore correct names for our perspective
-        state.players[myId].name = myName;
-        state.players[opponentId].name = oppName;
-        
-        console.log('Game state synced:', {
-          pot: state.pot,
-          curBet: state.curBet,
-          toAct: state.toAct,
-          street: state.street,
-          boardLength: state.board.length,
-          playerChips: state.players.map(p => p.chips),
-          playerBets: state.players.map(p => p.bet),
-          betThisRound: state.betThisRound,
-          streetChanged: streetChanged
-        });
-        
-        // Update revealed cards if street progressed
-        if (streetChanged) {
-          console.log('Street changed in sync, updating revealed cards');
-          if (state.street === 'flop') {
-            state.revealed.board = Math.max(state.revealed.board, 3);
-          } else if (state.street === 'turn') {
-            state.revealed.board = Math.max(state.revealed.board, 4);
-          } else if (state.street === 'river') {
-            state.revealed.board = Math.max(state.revealed.board, 5);
-          }
-        }
-        
-        // Validate state after sync
-        validateAndFixGameState();
-        
-        updateControls();
-        draw();
-        return; // Don't process the action again since state is already updated
-      }
-      
-      switch(action.type) {
-        case 'sync_state':
-        case 'request_sync':
-          // If I'm master, send full sync
-          if (assignedPlayerId === 0 && gameWs && gameWs.readyState === WebSocket.OPEN) {
-            console.log('Opponent requested sync; sending');
-            sendAction('sync_state');
-          }
-          break;
-          // Handle initial state sync
-          console.log('Received initial game state sync');
-          const newState = action.gameState;
-          
-          // Update local state with synchronized state, but preserve our player names
-          const myName = state.players[myId].name;
-          const oppName = state.players[opponentId].name;
-          
-          // Copy the game state
-          state.players = JSON.parse(JSON.stringify(newState.players));
-          state.pot = newState.pot;
-          state.curBet = newState.curBet;
-          state.toAct = newState.toAct;
-          state.street = newState.street;
-          state.board = JSON.parse(JSON.stringify(newState.board));
-          if (newState.deck) {
-            state.deck = JSON.parse(JSON.stringify(newState.deck));
-          }
-          
-          // Restore correct names for our perspective
-          state.players[myId].name = myName;
-          state.players[opponentId].name = oppName;
-          
-          console.log('Initial state synchronized, updating UI');
-          
-          // Validate and fix common state issues
-          validateAndFixGameState();
-
-          // Ensure reveal flags match current street so UI isn't greyed out
-          if (state.street === 'preflop') {
-            state.revealed.human = 2;
-            state.revealed.ai = 2; // keep opponent hidden in draw(), but mark 2 for layout
-            state.revealed.board = 0;
-            state.animating = false; state.glAnimating = false;
-          } else if (state.street === 'flop') {
-            state.revealed.human = 2; state.revealed.ai = 0; state.revealed.board = Math.max(state.revealed.board, 3);
-            state.animating = false; state.glAnimating = false;
-          } else if (state.street === 'turn') {
-            state.revealed.human = 2; state.revealed.ai = 0; state.revealed.board = Math.max(state.revealed.board, 4);
-            state.animating = false; state.glAnimating = false;
-          } else if (state.street === 'river') {
-            state.revealed.human = 2; state.revealed.ai = 0; state.revealed.board = Math.max(state.revealed.board, 5);
-            state.animating = false; state.glAnimating = false;
-          }
-          
-          updateControls();
-          draw();
-          break;
-        case 'fold':
-          playerFold(opponentId);
-          break;
-        case 'call':
-          playerCall(opponentId);
-          break;
-        case 'bet_raise':
-          playerBetOrRaise(opponentId, action.amount);
-          break;
-        case 'check':
-          state.acted[opponentId] = true;
-          if(bothCheckedThisStreet()) endStreet();
-          else { 
-            state.toAct = myId; 
-            updateControls(); 
-            draw(); 
-          }
-          break;
-      }
-    }
+    // Deprecated: opponent_action/state-sync logic removed (server-authoritative now)
     
     function getMyId() {
       // In multiplayer, use the ID assigned by the server
@@ -1638,23 +1681,11 @@ function positions(){
         playerId: myPlayerId,
         action: {
           type: actionType,
-          amount: amount,
-          // Include current game state to keep players synchronized
-          gameState: {
-            players: state.players,
-            pot: state.pot,
-            curBet: state.curBet,
-            toAct: state.toAct,
-            street: state.street,
-            board: state.board,
-            acted: state.acted,
-            deck: state.deck,
-            betThisRound: state.betThisRound
-          }
+          amount: amount
         }
       };
       
-      console.log(`Sending action ${actionType} with game state:`, action.action.gameState);
+      console.log(`Sending action ${actionType}`);
       gameWs.send(JSON.stringify(action));
     }
     
@@ -1701,14 +1732,14 @@ function positions(){
       scheduleAI(150 + Math.random()*200);
     }
     
-    // Override player actions to send to server in multiplayer mode
+    // Override player actions in multiplayer: send-only; let server drive state
     const originalPlayerFold = playerFold;
     const originalPlayerCall = playerCall;
     const originalPlayerBetOrRaise = playerBetOrRaise;
     if(isMultiplayer){
-      playerFold = function(pid){ console.log('mp wrap fold'); if(pid===getMyId()) sendAction('fold'); originalPlayerFold(pid); };
-      playerCall = function(pid){ console.log('mp wrap call'); if(pid===getMyId()) sendAction('call'); originalPlayerCall(pid); };
-      playerBetOrRaise = function(pid, amount){ console.log('mp wrap bet_raise'); if(pid===getMyId()) sendAction('bet_raise', amount); originalPlayerBetOrRaise(pid, amount); };
+      playerFold = function(pid){ if(pid!==getMyId()) return; sendAction('fold'); };
+      playerCall = function(pid){ if(pid!==getMyId()) return; sendAction('call'); };
+      playerBetOrRaise = function(pid, amount){ if(pid!==getMyId()) return; sendAction('bet_raise', amount); };
     }
     
     // Update player names for multiplayer
