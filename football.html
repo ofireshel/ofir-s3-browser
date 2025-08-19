@@ -107,6 +107,7 @@
     const INTERCEPT_LEAD = 10;
     const CONTAIN_MARGIN_X = 70;
     const LEAF_SPEED = 4.5; // px/frame for fruit projectiles (50% faster)
+    const PLAYER_SPEED_BONUS = 1.5; // +50% player speed globally
 
     // State
     const state = {
@@ -118,6 +119,8 @@
       playActive: false,
       snapped: false,
       gameOver: false,
+      level: 1,
+      newLevelShow: true,
       hasBall: 'qb', // 'qb' or receiver index
       ballPos: {x: (LEFT_HASH+RIGHT_HASH)/2, y: yardToY(25)},
       ballVel: {x:0,y:0},
@@ -134,6 +137,7 @@
       dashVec: { vx: 0, vy: 1 },
       dashing: false,
       projectiles: [],
+      levelIntroMs: 0,
       mouse: {x: W/2, y:H/2},
       lastMoveDir: {x:0, y:-1},
     };
@@ -164,6 +168,8 @@
       spawnDefenders();
       placeBallOnQB();
       updateHud();
+      if(state.pendingNextLevel){ state.level = state.pendingNextLevel; state.pendingNextLevel = 0; }
+      if(!state.snapped){ try{ showLevelIntro(); }catch{} }
     }
 
     function placeBallOnQB(){
@@ -175,7 +181,7 @@
       const defenders = [];
       // Build fruit roster: 3 banana, 3 apple, 3 orange, 2 pear
       const isMobile = W <= 820;
-      const fruits = isMobile
+      const base = isMobile
         ? ['apple','banana','orange','pear','apple']
         : [
             ...Array(3).fill('banana'),
@@ -183,6 +189,9 @@
             ...Array(3).fill('orange'),
             ...Array(2).fill('pear')
           ];
+      // Add one extra fruit every 2 levels (slower ramp), capped
+      const extra = Math.min(5, Math.floor(Math.max(0, (state.level||1) - 1) / 2));
+      const fruits = base.concat(Array(extra).fill(isMobile ? 'apple' : 'banana'));
       // Dynamic spacing based on field position: farther when far from end zone, closer when near
       const yardsToTD = Math.max(0, 100 - state.ballOnYard);
       const t = Math.max(0, Math.min(1, yardsToTD / 80)); // 1 far, 0 near goal
@@ -223,6 +232,7 @@
     const keys = new Set();
     function startPlay(){
       if(state.gameOver) return;
+      if(state.levelIntroMs>0) return; // wait for level intro to finish
       if(!state.snapped){
         // clear any lingering projectiles from prior down
         try{ state.projectiles = []; }catch(_){ state.projectiles = []; }
@@ -317,6 +327,8 @@
       const hasAir = state.hasBall==='air';
       const intentRun = state.hasBall!=='air' && Math.hypot(qb.vx,qb.vy)>0.8; // moving with ball
       const intentPass = state.hasBall==='qb' && !intentRun;
+      // Increase speed more gradually: +5% per level
+      const levelSpeedMult = 1 + 0.05 * Math.max(0, (state.level||1) - 1);
 
       // Apple acceleration boost: at most one apple gains +50% acceleration for 0.5s
       try {
@@ -359,7 +371,7 @@
           }
         }
         let burstMult = (d.type==='apple' && d.burst>0) ? 3.0 : 1.0;
-        let speed = (d.role==='rusher' ? DEF_SPEED*1.0 : DEF_SPEED*0.95) * (d.speedMult || 1.0) * burstMult;
+        let speed = (d.role==='rusher' ? DEF_SPEED*1.0 : DEF_SPEED*0.95) * (d.speedMult || 1.0) * burstMult * levelSpeedMult;
         const carrierX = (state.hasBall==='qb') ? qb.x : (typeof state.hasBall==='number' ? state.receivers[state.hasBall].x : qb.x);
         const carrierY = (state.hasBall==='qb') ? qb.y : (typeof state.hasBall==='number' ? state.receivers[state.hasBall].y : qb.y);
         const distToCarrier = Math.hypot(d.x - carrierX, d.y - carrierY);
@@ -400,7 +412,9 @@
               };
             }
             state.projectiles.push(proj);
-            d.leafCooldown = 900 + Math.random()*1200;
+            // Increase fire rate more gradually: +5% per level
+            const rateMult = 1 + 0.05 * Math.max(0, (state.level||1) - 1);
+            d.leafCooldown = (900 + Math.random()*1200) / rateMult;
           }
         }
       }
@@ -428,7 +442,7 @@
       const m = getMoveVector();
       // If dashing, override movement to force a quick retreat "down" the field
       let useVec = m;
-      let speed = BASE_SPEED * (m.sprint ? SPRINT_MULT : 1);
+      let speed = BASE_SPEED * PLAYER_SPEED_BONUS * (m.sprint ? SPRINT_MULT : 1);
       if(state.dashing){
         useVec = state.dashVec; // predetermined random vector with positive Y
         speed = BASE_SPEED * 10; // x10 pace
@@ -477,7 +491,7 @@
         // Allow control of the receiver who caught the ball (carrier boost)
         const m = getMoveVector();
         let useVec = m;
-        let speed = BASE_SPEED * (m.sprint ? SPRINT_MULT : 1);
+        let speed = BASE_SPEED * PLAYER_SPEED_BONUS * (m.sprint ? SPRINT_MULT : 1);
         if(state.dashing){ useVec = state.dashVec; speed = BASE_SPEED * 10; }
         const prevY_r = r.y;
         speed *= CARRIER_MULT;
@@ -501,7 +515,9 @@
         state.playActive = false; state.snapped = false; state.gameOver = true;
         playCrowdRoar();
         const downsUsed = state.down;
-        const msg = `Touchdown! Wow you beat the game in ${downsUsed} down${downsUsed===1?'':'s'}!` + (window.innerWidth<=820? '<br/>' : '\n') + `The top score is -1 so unfortunately you didn't win a Super Bowl ticket.`;
+        const nextLevel = Math.min(999, (state.level||1) + 1);
+        const msg = `Touchdown! Level ${state.level} complete in ${downsUsed} down${downsUsed===1?'':'s'}!` + (window.innerWidth<=820? '<br/>' : '\n') + `Proceed to level ${nextLevel}?`;
+        state.pendingNextLevel = nextLevel;
         showGameOver(msg);
         return;
       }
@@ -515,7 +531,19 @@
       state.down += 1;
       if(state.down>4){
         state.playActive = false; state.snapped = false; state.gameOver = true;
-        showGameOver('No score in 4 tries. Game Over');
+        // Reduce level by 1 (not below 1) and prompt to retry that level
+        const previous = Math.max(1, (state.level||1) - 1);
+        state.level = previous;
+        state.pendingNextLevel = previous;
+        const retryLabel = `Try level ${previous} again?`;
+        showGameOver(`No score in 4 tries. Game Over`);
+        // patch button label after render
+        setTimeout(()=>{
+          try{
+            const yesBtn = document.getElementById('playAgainYes');
+            if(yesBtn) yesBtn.textContent = retryLabel;
+          }catch(_){ }
+        }, 0);
       } else {
         announceDown();
         resetPlay();
@@ -667,6 +695,7 @@
       // ability timers
       state.dashMs = Math.max(0, state.dashMs - dt);
       if(state.dashing && state.dashMs<=0){ state.dashing=false; }
+      state.levelIntroMs = Math.max(0, (state.levelIntroMs||0) - dt);
       if(state.snapped){
         // Enforce max play duration (20s) to always end a down
         if(state.playStartMs && performance.now() - state.playStartMs > 20000){ whistleDead('tackle'); return; }
@@ -835,6 +864,28 @@
       }, 1200);
     }
 
+    function showLevelIntro(){
+      const el = document.getElementById('announce');
+      el.textContent = `Level ${state.level}`;
+      el.style.left = '50%';
+      el.style.top = '24%';
+      el.style.transform = 'translate(-50%, -50%)';
+      el.style.display = 'block'; el.style.opacity = '1';
+      el.style.color = '#ef4444';
+      el.style.background = 'linear-gradient(180deg, #fecaca, #ef4444)';
+      el.style.webkitBackgroundClip = 'text';
+      el.style.backgroundClip = 'text';
+      el.style.webkitTextFillColor = 'transparent';
+      el.style.fontSize = (window.innerWidth<=820? '28px' : '56px');
+      el.style.fontWeight = '900';
+      state.levelIntroMs = 1300;
+      if(announceTimer){ try{ clearTimeout(announceTimer); }catch{} announceTimer=null; }
+      announceTimer = setTimeout(()=>{
+        el.style.transition='opacity .8s'; el.style.opacity='0';
+        announceTimer = setTimeout(()=>{ el.style.display='none'; el.style.transition=''; announceTimer=null; }, 900);
+      }, 1100);
+    }
+
     function playCrowdRoar(){
       try{
         const ac = new (window.AudioContext||window.webkitAudioContext)();
@@ -864,7 +915,8 @@
       // Render gradient only on the message span, not on the container
       // Hide control dock while in game over to let the player choose
       const dock = document.getElementById('dock'); if(dock) dock.style.display='none';
-      el.innerHTML = `<span style="display:block;background:linear-gradient(180deg,#ff4d4d,#b91c1c);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;font-weight:900;">${msg}</span><div style="margin-top:10px;display:flex;gap:12px;justify-content:center"><button id="playAgainYes" class="actbtn" aria-label="Play again" style="-webkit-text-fill-color:#e2e8f0;color:#e2e8f0;">Play again</button><button id="playAgainNo" class="actbtn" aria-label="Back to menu" style="-webkit-text-fill-color:#e2e8f0;color:#e2e8f0;">Nah I'm good</button></div>`;
+      const proceedLabel = (state.pendingNextLevel ? `Proceed to level ${state.pendingNextLevel}` : 'Play again');
+      el.innerHTML = `<span style="display:block;background:linear-gradient(180deg,#ff4d4d,#b91c1c);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;font-weight:900;">${msg}</span><div style="margin-top:10px;display:flex;gap:12px;justify-content:center"><button id="playAgainYes" class="actbtn" aria-label="Play again" style="-webkit-text-fill-color:#e2e8f0;color:#e2e8f0;">${proceedLabel}</button><button id="playAgainNo" class="actbtn" aria-label="Back to menu" style="-webkit-text-fill-color:#e2e8f0;color:#e2e8f0;">Nah I'm good</button></div>`;
       el.style.display = 'block';
       el.style.opacity = '1';
       el.style.transition = '';

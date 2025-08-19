@@ -1,8 +1,6 @@
 <!doctype html>
 <html>
 <head>
-  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-9669595312999180"
-     crossorigin="anonymous"></script>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
   <title>Heads-Up Poker — Bot</title>
@@ -49,26 +47,16 @@
   </style>
 </head>
 <body>
-  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-9669595312999180"
-       crossorigin="anonymous"></script>
-  <!-- main -->
-  <ins class="adsbygoogle"
-       style="display:block"
-       data-ad-client="ca-pub-9669595312999180"
-       data-ad-slot="4945715008"
-       data-ad-format="auto"
-       data-full-width-responsive="true"></ins>
-  <script>
-       (adsbygoogle = window.adsbygoogle || []).push({});
-  </script>
+  
   <div class="wrap">
     <header>
-      <h1>Heads-Up Poker — Bot</h1>
+      <h1>DEPLOY TEST - POKER</h1>
       <span id="blinds" class="chip">Blinds: 1/2</span>
       <span class="spacer"></span>
       <a href="games.html">All Games</a>
     </header>
     <div id="stage">
+      <div style="position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 1000; font-size: 32px; color: red; font-weight: bold; background: rgba(255,255,255,0.8); padding: 10px 20px; border-radius: 5px;">IN TESTING</div>
       <canvas id="table"></canvas>
       <div id="glLayer"></div>
       <div id="result" class="result"></div>
@@ -144,7 +132,7 @@
     function drawChipColumn(px,py,color,count){ const gap=3.2*DPR; for(let i=0;i<count;i++){ drawChipDisc(px, py - i*gap, color); } }
     function drawChipBank(anchorX,anchorY,amount,labelY){ const cols=buildChipColumns(amount); const step=(isSmallScreen()?18:24)*DPR; let x=anchorX; const bankYOffset=(isSmallScreen()?16:18)*DPR; for(let i=0;i<cols.length;i++){ const c=cols[i]; drawChipColumn(x, anchorY + bankYOffset, c.color, c.count); x-=step; } const centerX=anchorX - ((cols.length-1)*step)/2; const labelPosY=(typeof labelY==='number')? labelY : (anchorY - (isSmallScreen()?30:14)*DPR); ctx.save(); ctx.fillStyle='#e2e8f0'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.font=`${(isSmallScreen()?20:18)*DPR}px Arial Black`; ctx.fillText(String(amount), centerX, labelPosY); ctx.restore(); }
     function drawBetIndicator(anchorX,anchorY,amount,labelY){ if(!amount || amount<=0) return; let x=anchorX + (isSmallScreen()?84:190)*DPR; const y=anchorY + (isSmallScreen()?16:18)*DPR; const maxX=canvas.width - 16*DPR; if(x>maxX) x=maxX; const sample=Math.min(6, Math.max(3, Math.round(Math.log10(amount+1))+2)); const palette=[CHIP_COLORS[25],CHIP_COLORS[100],CHIP_COLORS[5],CHIP_COLORS[500]].filter(Boolean); for(let i=0;i<sample;i++){ const col=palette[i%palette.length] || '#cbd5e1'; drawChipDisc(x + (i%2)*4*DPR, y - i*4*DPR, col); } const textY=(typeof labelY==='number')? labelY : (y - (isSmallScreen()?28:16)*DPR); const stackCenterX=x + 2*DPR; const textX=Math.min(stackCenterX, canvas.width - 16*DPR); ctx.save(); ctx.fillStyle='#f8fafc'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.font=`${(isSmallScreen()?22:22)*DPR}px Arial Black`; ctx.fillText(String(amount), textX, textY); ctx.restore(); }
-    function drawDealerButton(x,y){ ctx.save(); ctx.translate(x,y); const R=14*DPR; ctx.shadowColor='rgba(0,0,0,0.35)'; ctx.shadowBlur=6*DPR; const grad=ctx.createRadialGradient(-R*0.4,-R*0.4,R*0.4,0,0,R); grad.addColorStop(0,'#f3f4f6'); grad.addColorStop(1,'#d1d5db'); ctx.beginPath(); ctx.arc(0,0,R,0,Math.PI*2); ctx.fillStyle=grad; ctx.fill(); ctx.shadowBlur=0; ctx.strokeStyle='#111827'; ctx.lineWidth=2.2*DPR; ctx.stroke(); ctx.beginPath(); ctx.arc(0,0,R-4*DPR,0,Math.PI*2); ctx.strokeStyle='#6b7280'; ctx.lineWidth=1.4*DPR; ctx.stroke(); ctx.fillStyle='#111827'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.font=`${12*DPR}px Arial Black`; ctx.fillText('D',0,0); ctx.restore(); }
+    function drawDealerButton(x,y){ }
     function suitColor(s){ if(s===1||s===2) return '#ef4444'; if(s===3) return '#065f46'; return '#111827'; }
     function rankStr(r){ if(r===10) return '10'; return '--23456789TJQKA'[r]; }
     const SUIT_EMO=['♠','♥','♦','♣'];
@@ -187,11 +175,19 @@
       const alignYHuman=isSmallScreen()? (p.human.cards[1] - 36*DPR) : undefined; const alignYAI=isSmallScreen()? (p.ai.cards[1] - 36*DPR) : undefined;
       try{ drawChipBank(p.human.cards[0] - (isSmallScreen()?64:110)*DPR, p.human.cards[1], state.players[0].stack, alignYHuman); }catch{}
       try{ drawChipBank(p.ai.cards[0] - (isSmallScreen()?70:120)*DPR, p.ai.cards[1], state.players[1].stack, alignYAI); }catch{}
-      const dn=state.dealer===0 ? p.human.name : p.ai.name; const dpos=[dn[0]-(isSmallScreen()?78:62)*DPR, dn[1]]; drawDealerButton(dpos[0], dpos[1]);
+      // The "dealer" is the big blind. Draw a dealer button next to them.
+      
       ctx.fillStyle='#fbbf24'; ctx.font=`${18*DPR}px Arial Black`; ctx.fillText(`Pot: ${state.pot}`, p.pot[0], p.pot[1]);
       for(let i=0;i<5;i++){ const [x,y]=p.board[i]; const c=state.board[i]; const show = i < (state.revealed?.board||0); drawCard(x,y, c||{r:14,s:0}, show); }
-      drawBetIndicator(p.human.cards[2], p.human.cards[3], (state.betThisRound?.[0])||0, alignYHuman);
-      drawBetIndicator(p.ai.cards[2], p.ai.cards[3], (state.betThisRound?.[1])||0, alignYAI);
+      // Ensure blinds are visible at the start of each hand even during animations
+      let amt0 = (state.betThisRound?.[0])||0;
+      let amt1 = (state.betThisRound?.[1])||0;
+      if (state.street==='preflop' && state.forceShowBlinds===true) {
+        amt0 = Math.max(amt0, state.bigBlind===0 ? BIG_BLIND : SMALL_BLIND);
+        amt1 = Math.max(amt1, state.bigBlind===1 ? BIG_BLIND : SMALL_BLIND);
+      }
+      drawBetIndicator(p.human.cards[2], p.human.cards[3], amt0, alignYHuman);
+      drawBetIndicator(p.ai.cards[2], p.ai.cards[3], amt1, alignYAI);
       const h0=(state.players?.[0]?.hole)||[], h1=(state.players?.[1]?.hole)||[];
       if((state.revealed?.human||0)>=1 && h0[0]) drawCard(p.human.cards[0], p.human.cards[1], h0[0], true);
       if((state.revealed?.human||0)>=2 && h0[1]) drawCard(p.human.cards[2], p.human.cards[3], h0[1], true);
@@ -201,10 +197,74 @@
       if((state.animating && !state.glAnimating) || state.moving) requestAnimationFrame(draw);
     }
 
-    function resetHand(){ state.handId++; state.board=[]; state.pot=0; state.street='preflop'; state.curBet=0; state.betThisRound=[0,0]; state.players.forEach(p=>{p.hole=[]; p.folded=false;}); state.lastAggressor=-1; state.message=''; state.dealer=1 - state.dealer; state.deck=newDeck(); shuffle(state.deck); postBlind(state.dealer, SMALL_BLIND); postBlind(1-state.dealer, BIG_BLIND); for(let i=0;i<2;i++){ state.players[state.dealer].hole.push(state.deck.pop()); state.players[1-state.dealer].hole.push(state.deck.pop()); } state.revealed={human:0, ai:0, board:0}; state.acted=[false,false]; state.toAct=state.dealer; state.animating=true; state.streetStartedAt=performance.now(); updateControls(); state.animating=true; draw(); if(canvas.width<10 || canvas.height<10){ setTimeout(startDealAnimation,50);} else { startDealAnimation(); } 
-      // Failsafe: if dealing animation fails, reveal and continue
-      setTimeout(()=>{ try{ if(state.street==='preflop' && state.revealed.human<1 && state.revealed.ai<1){ state.revealed.human=2; state.revealed.ai=2; state.animating=false; draw(); updateControls(); } }catch{} }, 900);
+    function resetHand(){
+      state.handId++;
+      state.board = [];
+      state.street = 'preflop';
+      state.lastAggressor = -1;
+      state.message = '';
+      state.players.forEach(p => { p.hole = []; p.folded = false; });
+    
+      // **Critical**: Reset pot and bets BEFORE posting new blinds
+      state.pot = 0;
+      state.betThisRound = [0, 0];
+      state.curBet = 0;
+    
+      // Dealer alternates each hand. In heads-up, Dealer is Big Blind.
+      state.dealer = 1 - state.dealer;
+      state.bigBlind = state.dealer;
+      state.smallBlind = 1 - state.dealer;
+    
+      state.deck = newDeck();
+      shuffle(state.deck);
+    
+      // Post blinds correctly
+      postBlind(state.bigBlind, BIG_BLIND);
+      postBlind(state.smallBlind, SMALL_BLIND);
+    
+      // Deal cards: one to SB, one to BB, repeat.
+      state.players[state.smallBlind].hole.push(state.deck.pop());
+      state.players[state.bigBlind].hole.push(state.deck.pop());
+      state.players[state.smallBlind].hole.push(state.deck.pop());
+      state.players[state.bigBlind].hole.push(state.deck.pop());
+    
+      state.revealed = { human: 0, ai: 0, board: 0 };
+      state.forceShowBlinds = true;
+      state.acted = [false, false];
+    
+      state.humanIsSmallBlind = (state.smallBlind === 0);
+      state.preflopSmallBlindActed = false;
+    
+      // Preflop: small blind acts first
+      state.toAct = state.smallBlind;
+      state.animating = true;
+      state.streetStartedAt = performance.now();
+      updateControls();
+    
+      // Draw immediately so blind bet indicators are visible
+      state.animating = false;
+      draw();
+    
+      if (canvas.width < 10 || canvas.height < 10) {
+        setTimeout(startDealAnimation, 50);
+      } else {
+        startDealAnimation();
+      }
+    
+      // Failsafe for animation hangs
+      setTimeout(() => {
+        try {
+          if (state.street === 'preflop' && state.revealed.human < 1 && state.revealed.ai < 1) {
+            state.revealed.human = 2;
+            state.revealed.ai = 2;
+            state.animating = false;
+            draw();
+            updateControls();
+          }
+        } catch {}
+      }, 900);
     }
+
     function postBlind(pid, amt){ const p=state.players[pid]; const pay=Math.min(amt, p.stack); p.stack-=pay; state.betThisRound[pid]+=pay; state.pot+=pay; state.curBet=Math.max(state.curBet, state.betThisRound[pid]); }
     function minRaise(){ const highest=Math.max(state.betThisRound[0], state.betThisRound[1]); const other=Math.min(state.betThisRound[0], state.betThisRound[1]); const lastRaise=Math.max(BIG_BLIND, highest-other); return highest + lastRaise; }
     function canCheck(pid){ return state.betThisRound[pid]===state.curBet; }
@@ -212,6 +272,25 @@
     function allInCap(pid){ return state.players[pid].stack + state.betThisRound[pid]; }
     function openAmountRange(pid){ const min=state.curBet===0 ? BIG_BLIND : minRaise(); const effectiveMax=Math.min(allInCap(pid), allInCap(1-pid)); const max=Math.max(0, effectiveMax); return [Math.min(min,max), max]; }
     function nextPlayerAfter(pid){ return 1-pid; }
+    // Deterministic turn engine step after any action
+    function turnEngineAfterAction(actorPid){
+      if(state.street==='preflop'){
+        // Only close preflop when a bet is called and both players have acted
+        const canClose = (state.curBet>0) && (state.betThisRound[0]===state.betThisRound[1]) && (state.acted[0] && state.acted[1]);
+        if(canClose){ endStreet(); return; }
+        state.toAct = nextPlayerAfter(actorPid);
+        updateControls(); draw();
+        if(state.toAct===1 && !(state.street==='preflop' && state.humanIsSmallBlind && !state.preflopSmallBlindActed)){
+          try{ aiAct(); }catch{ scheduleAI(0); }
+        }
+        return;
+      }
+      // Postflop normal closure rules
+      if(bothActedAndEqual() || bothCheckedThisStreet()){ endStreet(); return; }
+      state.toAct = nextPlayerAfter(actorPid);
+      updateControls(); draw();
+      if(state.toAct===1){ try{ aiAct(); }catch{ scheduleAI(0);} }
+    }
     function bothActedAndEqual(){
       // In heads-up, when there's been a bet and it's been called (bets equal) and both acted, street ends
       const allInEqual=isAllInAndEqual(); if(allInEqual) return false;
@@ -221,17 +300,34 @@
       return betsEqual && bothActed;
     }
     function maybeEndStreet(){
-      // Preflop: matched blinds after a call ends street
-      if(state.street==='preflop' && state.betThisRound[0]===state.betThisRound[1]){ endStreet(); return true; }
+      // End street only when action is closed: a bet was called and both acted (preflop and postflop),
+      // or both checked (postflop only)
       if(bothActedAndEqual()){ endStreet(); return true; }
-      if(bothCheckedThisStreet()){ endStreet(); return true; }
+      if(state.street!=='preflop' && bothCheckedThisStreet()){ endStreet(); return true; }
       return false;
     }
-    function bothCheckedThisStreet(){ return state.curBet===0 && state.acted[0] && state.acted[1]; }
+    function bothCheckedThisStreet(){
+      // Never close the preflop street via "both checked" (blinds prevent true checks)
+      if(state.street==='preflop') return false;
+      return state.curBet===0 && state.acted[0] && state.acted[1];
+    }
     function endStreet(){
+      // **CRITICAL FIX**: Do not advance the street if preflop action isn't closed.
+      // Preflop closes ONLY when bets are equal AND both players have acted.
+      if (state.street === 'preflop') {
+        const betsAreEqual = state.betThisRound[0] === state.betThisRound[1];
+        const sbActed = state.acted[state.smallBlind];
+        const bbActed = state.acted[state.bigBlind];
+        // The check/call that closes action preflop might not set both `acted` flags,
+        // so we check if the small blind has completed their first action.
+        if (!betsAreEqual || !state.preflopSmallBlindActed) {
+          return; // Abort street change if preflop action is not complete
+        }
+      }
+
       state.street = state.street==='preflop'? 'flop' : state.street==='flop'? 'turn' : state.street==='turn'? 'river' : 'showdown';
       state.curBet=0; state.betThisRound=[0,0]; state.lastAggressor=-1; state.acted=[false,false];
-      state.toAct = state.dealer===1? 0 : 1; // Out of position acts first postflop
+      state.toAct = state.smallBlind; // Post-flop action starts with the Small Blind
       if(state.street==='flop'){ state.board.push(state.deck.pop(), state.deck.pop(), state.deck.pop()); state.revealed.board = 3; }
       else if(state.street==='turn'){ state.board.push(state.deck.pop()); state.revealed.board = Math.max(state.revealed.board, 4); }
       else if(state.street==='river'){ state.board.push(state.deck.pop()); state.revealed.board = Math.max(state.revealed.board, 5); }
@@ -244,16 +340,15 @@
     }
     function isAllInAndEqual(){ return (state.players[0].stack===0 || state.players[1].stack===0) && state.betThisRound[0]===state.betThisRound[1]; }
     function maybeAutoRunout(){ if(state.street==='showdown') return false; if(!isAllInAndEqual()) return false; const startIdx=Math.max(0, Math.min(5, state.board.length)); const remaining=5 - startIdx; if(remaining<=0){ doShowdown(); return true; } const p=positions(); const deckPos={ x: canvas.width/2 + 220*DPR, y: canvas.height/2 - 40*DPR }; state.animating=true; state.glAnimating=!!pixiApp; updateControls(); const queue=[]; for(let i=0;i<remaining;i++){ const idx=startIdx + i; if(state.board.length<=idx){ state.board.push(state.deck.pop()); } queue.push({ idx, card: state.board[idx], to:{ x: p.board[idx][0], y: p.board[idx][1] } }); } function animateNext(){ if(queue.length===0){ state.animating=false; state.glAnimating=false; updateControls(); doShowdown(); return; } const item=queue.shift(); if(pixiApp){ getCardTexture(item.card,true,isSmallScreen()?0.9:1); flyCard(deckPos, item.to, item.card, true, 110, ()=>{ state.revealed.board=Math.max(state.revealed.board, item.idx+1); animateNext(); }); } else { state.moving={ from:deckPos, to:item.to, start:performance.now(), dur:120, card:item.card, faceUp:true, onDone:()=>{ state.revealed.board=Math.max(state.revealed.board, item.idx+1); animateNext(); } }; requestAnimationFrame(draw); } } animateNext(); return true; }
-    function startDealAnimation(){ const p=positions(); const deckPos={ x: canvas.width/2 + 220*DPR, y: canvas.height/2 - 40*DPR }; const seq=[ { who:'human', idx:0, to:{x:p.human.cards[0], y:p.human.cards[1]}, faceUp:true }, { who:'ai', idx:0, to:{x:p.ai.cards[0], y:p.ai.cards[1]}, faceUp:false }, { who:'human', idx:1, to:{x:p.human.cards[2], y:p.human.cards[3]}, faceUp:true }, { who:'ai', idx:1, to:{x:p.ai.cards[2], y:p.ai.cards[3]}, faceUp:false } ]; let i=0; let progressed=false; function step(){ if(i>=seq.length){ state.animating=false; state.glAnimating=false; updateControls(); draw(); if(!maybeAutoRunout()){ if(state.toAct===1 && !state.animating){ try{ aiAct(); }catch{ scheduleAI(0);} } else { maybeAIMove(); } } return; } const s=seq[i++]; const card = s.who==='human'? state.players[0].hole[s.idx] : state.players[1].hole[s.idx]; if(pixiApp){ state.glAnimating=true; getCardTexture(card, !!s.faceUp, isSmallScreen()?0.9:1); flyCard(deckPos, s.to, card, s.faceUp, 120, ()=>{ if(s.who==='human'){ state.revealed.human=Math.max(state.revealed.human, s.idx+1); } else { state.revealed.ai=Math.max(state.revealed.ai, s.idx+1); } progressed=true; setTimeout(()=>{ state.glAnimating=false; draw(); setTimeout(step,10); },0); }); } else { state.moving={ from:deckPos, to:s.to, start:performance.now(), dur:160, card, faceUp:s.faceUp, onDone:()=>{ if(s.who==='human'){ state.revealed.human=Math.max(state.revealed.human, s.idx+1); } else { state.revealed.ai=Math.max(state.revealed.ai, s.idx+1); } progressed=true; draw(); setTimeout(step,10); } }; requestAnimationFrame(draw); } } step(); setTimeout(()=>{ if(!progressed){ state.revealed.human=2; state.revealed.ai=2; state.animating=false; draw(); updateControls(); if(!maybeAutoRunout()){ if(state.toAct===1 && !state.animating){ try{ aiAct(); }catch{ scheduleAI(0);} } else { maybeAIMove(); } } } },1200); }
+    function startDealAnimation(){ const p=positions(); const deckPos={ x: canvas.width/2 + 220*DPR, y: canvas.height/2 - 40*DPR }; const seq=[ { who:'human', idx:0, to:{x:p.human.cards[0], y:p.human.cards[1]}, faceUp:true }, { who:'ai', idx:0, to:{x:p.ai.cards[0], y:p.ai.cards[1]}, faceUp:false }, { who:'human', idx:1, to:{x:p.human.cards[2], y:p.human.cards[3]}, faceUp:true }, { who:'ai', idx:1, to:{x:p.ai.cards[2], y:p.ai.cards[3]}, faceUp:false } ]; let i=0; let progressed=false; function step(){ if(i>=seq.length){ state.animating=false; state.glAnimating=false; updateControls(); draw(); // Hand dealt; wait for explicit actions
+      return; } const s=seq[i++]; const card = s.who==='human'? state.players[0].hole[s.idx] : state.players[1].hole[s.idx]; if(pixiApp){ state.glAnimating=true; getCardTexture(card, !!s.faceUp, isSmallScreen()?0.9:1); flyCard(deckPos, s.to, card, s.faceUp, 120, ()=>{ if(s.who==='human'){ state.revealed.human=Math.max(state.revealed.human, s.idx+1); } else { state.revealed.ai=Math.max(state.revealed.ai, s.idx+1); } progressed=true; setTimeout(()=>{ state.glAnimating=false; draw(); setTimeout(step,10); },0); }); } else { state.moving={ from:deckPos, to:s.to, start:performance.now(), dur:160, card, faceUp:s.faceUp, onDone:()=>{ if(s.who==='human'){ state.revealed.human=Math.max(state.revealed.human, s.idx+1); } else { state.revealed.ai=Math.max(state.revealed.ai, s.idx+1); } progressed=true; draw(); setTimeout(step,10); } }; requestAnimationFrame(draw); } } step(); setTimeout(()=>{ if(!progressed){ state.revealed.human=2; state.revealed.ai=2; state.animating=false; draw(); updateControls(); } },1200); }
     function doShowdown(){ state.street='showdown'; state.revealed.board=Math.max(state.revealed.board,5); state.revealed.ai=2; const alive=[0,1].filter(i=>!state.players[i].folded); const scores=alive.map(i=>({ i, hand: eval7(state.players[i].hole.concat(state.board)) })); let best=scores[0]; for(const s of scores){ if(compareHands(s.hand, best.hand)>0) best=s; } const winners=scores.filter(s=>compareHands(s.hand, best.hand)===0).map(s=>s.i); const prizeEach=Math.floor(state.pot / winners.length); winners.forEach(i=> state.players[i].stack += prizeEach); const loser=alive.find(i=> !winners.includes(i)); const winnerName = winners.length===2 ? 'Both players' : state.players[winners[0]].name; const bestLabel = handLabel(eval7(state.players[winners[0]].hole.concat(state.board))); const oppLabel = loser!=null ? handLabel(eval7(state.players[loser].hole.concat(state.board))) : ''; const resultEl=document.getElementById('result'); const contId='res-continue'; resultEl.style.display='block'; resultEl.innerHTML=(winners.length===2 ? `Split Pot — ${bestLabel}` : `${winnerName} wins ${state.pot} with ${bestLabel}` + (loser!=null? `<br/><span style='font-weight:700;color:#93c5fd'>Beats ${state.players[loser].name}'s ${oppLabel}</span>` : '')) + `<div><button id="${contId}" class="res-btn">Continue</button></div>`; state.message = winners.length===2 ? 'Split Pot' : `${state.players[best.i].name} wins ${state.pot}`; state.pot=0; updateControls(); draw(); let advanced=false; const proceed=()=>{ if(advanced) return; advanced=true; resultEl.style.display='none'; if(state.players[0].stack<=0 || state.players[1].stack<=0){ } else resetHand(); }; const btn=document.getElementById(contId); if(btn) btn.onclick=proceed; setTimeout(()=>{ proceed(); }, 4500); }
-    function playerFold(pid){ state.players[pid].folded=true; const opp=1-pid; state.players[opp].stack += state.pot; state.message=`${state.players[opp].name} wins ${state.pot}`; state.pot=0; state.street='showdown'; updateControls(); draw(); setTimeout(()=>resetHand(), 1200); }
-    function playerCall(pid){ const need=toCall(pid); const p=state.players[pid]; const pay=Math.min(need, p.stack); p.stack-=pay; state.betThisRound[pid]+=pay; state.pot+=pay; state.acted[pid]=true; 
+    function playerFold(pid){ if(state.street==='preflop' && pid===state.smallBlind){ state.preflopSmallBlindActed = true; } state.players[pid].folded=true; const opp=1-pid; state.players[opp].stack += state.pot; state.message=`${state.players[opp].name} wins ${state.pot}`; state.pot=0; state.street='showdown'; updateControls(); draw(); setTimeout(()=>resetHand(), 1200); }
+    function playerCall(pid){ if(state.street==='preflop' && pid===state.smallBlind){ state.preflopSmallBlindActed = true; } state.forceShowBlinds = false; const need=toCall(pid); const p=state.players[pid]; const pay=Math.min(need, p.stack); p.stack-=pay; state.betThisRound[pid]+=pay; state.pot+=pay; state.acted[pid]=true; 
       if(isAllInAndEqual()){ updateControls(); draw(); maybeAutoRunout(); return; }
-      if(maybeEndStreet()) return;
-      state.toAct=nextPlayerAfter(pid); updateControls(); draw();
-      if(!maybeAutoRunout()) { if(state.toAct===1 && !state.animating){ try{ aiAct(); }catch{ scheduleAI(0); } } }
+      turnEngineAfterAction(pid);
     }
-    function playerBetOrRaise(pid, amount){ const [minAmt,maxAmt]=openAmountRange(pid); const target=Math.max(minAmt, Math.min(amount, maxAmt)); const p=state.players[pid]; const put=target - state.betThisRound[pid]; const pay=Math.min(put, p.stack); p.stack-=pay; state.pot+=pay; state.betThisRound[pid]+=pay; state.curBet=Math.max(state.curBet, state.betThisRound[pid]); state.lastAggressor=pid; state.acted=[false,false]; state.acted[pid]=true; state.toAct=nextPlayerAfter(pid); if(isAllInAndEqual()){ updateControls(); draw(); maybeAutoRunout(); return; } if(state.players[1-pid].stack===0 && state.betThisRound[0]===state.betThisRound[1]){ updateControls(); draw(); maybeAutoRunout(); return; } updateControls(); draw(); maybeAIMove(); }
+    function playerBetOrRaise(pid, amount){ if(state.street==='preflop' && pid===state.smallBlind){ state.preflopSmallBlindActed = true; } state.forceShowBlinds = false; const [minAmt,maxAmt]=openAmountRange(pid); const target=Math.max(minAmt, Math.min(amount, maxAmt)); const p=state.players[pid]; const put=target - state.betThisRound[pid]; const pay=Math.min(put, p.stack); p.stack-=pay; state.pot+=pay; state.betThisRound[pid]+=pay; state.curBet=Math.max(state.curBet, state.betThisRound[pid]); state.lastAggressor=pid; state.acted=[false,false]; state.acted[pid]=true; if(isAllInAndEqual()){ updateControls(); draw(); maybeAutoRunout(); return; } if(state.players[1-pid].stack===0 && state.betThisRound[0]===state.betThisRound[1]){ updateControls(); draw(); maybeAutoRunout(); return; } turnEngineAfterAction(pid); }
 
     const foldBtn=document.getElementById('foldBtn');
     const checkCallBtn=document.getElementById('checkCallBtn');
@@ -277,17 +372,20 @@
       allinBtn.disabled = disableAll || !meTurn;
       betRaiseBtn.disabled = disableAll || !meTurn;
       betRaiseBtn.textContent = state.curBet>0 ? 'Raise' : 'Bet';
-      // If it's bot's turn, act immediately for reliability
-      if(state.toAct===1 && !state.animating && state.street!=='showdown'){
+      // If it's bot's turn, act immediately for reliability (but never before human SB acts preflop, and not during freeze)
+      const freeze = state.street==='preflop' && ( (typeof performance!=='undefined' ? performance.now() : Date.now()) < (state.preflopFreezeUntil||0) );
+      if(state.toAct===1 && !state.animating && state.street!=='showdown' && !(state.street==='preflop' && state.humanIsSmallBlind && !state.preflopSmallBlindActed) && !freeze){
         try { aiAct(); } catch { scheduleAI(0); }
       }
     }
     foldBtn.addEventListener('click', ()=>{ if(state.toAct!==0) return; playerFold(0); });
-    checkCallBtn.addEventListener('click', ()=>{ if(state.toAct!==0) return; const need=toCall(0); if(need>0){ playerCall(0); } else { state.acted[0]=true; if(maybeEndStreet()) return; state.toAct=1; updateControls(); draw(); try{ aiAct(); }catch{ scheduleAI(0);} } });
+    checkCallBtn.addEventListener('click', ()=>{ if(state.toAct!==0) return; const need=toCall(0); if(need>0){ playerCall(0); } else { state.preflopSmallBlindActed = state.street==='preflop' ? true : state.preflopSmallBlindActed; state.forceShowBlinds=false; state.acted[0]=true; turnEngineAfterAction(0); } });
     halfBtn.addEventListener('click', ()=>{ if(state.toAct!==0) return; const potHalf=Math.max(BIG_BLIND, Math.round((state.pot + toCall(0)) * 0.5)); betAmt.value=potHalf; });
     potBtn.addEventListener('click', ()=>{ if(state.toAct!==0) return; const potSize=state.pot + toCall(0); betAmt.value=Math.max(BIG_BLIND, potSize); });
     allinBtn.addEventListener('click', ()=>{ if(state.toAct!==0) return; betAmt.value=allInCap(0); });
     betRaiseBtn.addEventListener('click', ()=>{ if(state.toAct!==0) return; const amt=Number(betAmt.value)||0; playerBetOrRaise(0, amt); });
+    // Also mark small blind acted if user clicks Fold button directly
+    foldBtn.addEventListener('click', ()=>{ if(state.toAct!==0) return; if(state.street==='preflop' && state.smallBlind===0){ state.preflopSmallBlindActed=true; } });
 
     // Intelligent fallback to guarantee progress without spewing chips
     function aiForceAct(){
@@ -314,10 +412,24 @@
         }
       }
     }
-    let aiTimer=null; function scheduleAI(delay){ if(aiTimer){ try{ clearTimeout(aiTimer);}catch{} aiTimer=null; } aiTimer=setTimeout(()=>{ aiTimer=null; if(state && state.toAct===1 && !state.players[1].folded && state.street!=='showdown' && !state.animating){ try{ aiAct(); }catch{ aiForceAct(); } } }, delay); }
-    function maybeAIMove(){ if(state.toAct!==1 || state.players[1].folded || state.street==='showdown') return; try { aiAct(); } catch { aiForceAct(); } }
+    let aiTimer=null; function scheduleAI(delay){ if(aiTimer){ try{ clearTimeout(aiTimer);}catch{} aiTimer=null; } aiTimer=setTimeout(()=>{ aiTimer=null; if(state && state.toAct===1 && !state.players[1].folded && state.street!=='showdown' && !state.animating && !(state.street==='preflop' && state.humanIsSmallBlind && !state.preflopSmallBlindActed)){ try{ aiAct(); }catch{ aiForceAct(); } } }, delay); }
+    function maybeAIMMoveBlocked(){
+      const freeze = state.street==='preflop' && ( (typeof performance!=='undefined' ? performance.now() : Date.now()) < (state.preflopFreezeUntil||0) );
+      if(state.street==='preflop' && state.humanIsSmallBlind && !state.preflopSmallBlindActed) return true;
+      if(freeze) return true;
+      return false;
+    }
+    function maybeAIMove(){
+      if(maybeAIMMoveBlocked()) return;
+      if(state.toAct!==1 || state.players[1].folded || state.street==='showdown') return;
+      try { aiAct(); } catch { aiForceAct(); }
+    }
     function preflopScore(hole){ if(!hole||hole.length<2) return 0; const r1=hole[0].r, r2=hole[1].r; const hi=Math.max(r1,r2), lo=Math.min(r1,r2); const suited=hole[0].s===hole[1].s; const gap=Math.abs(r1-r2)-1; let score; if(hi===lo){ score=0.84 + (hi-2)*0.01; } else { score=(hi/14)*0.45 + (lo/14)*0.25; if(suited) score+=0.06; if(gap<=0) score+=0.05; else if(gap===1) score+=0.03; else if(gap>=3) score-=0.06; if(hi===14 && lo>=10) score+=0.04; } return Math.max(0, Math.min(1, score)); }
     function aiAct(){
+      // Guards: preflop, never act before the human SB acts, and honor freeze window
+      const nowTs = (typeof performance!=='undefined' ? performance.now() : Date.now());
+      if(state.street==='preflop' && state.humanIsSmallBlind && !state.preflopSmallBlindActed){ return; }
+      if(state.street==='preflop' && nowTs < (state.preflopFreezeUntil||0)) { return; }
       const pid=1; const me=state.players[pid]; const hero=state.players[0];
       const need=toCall(pid);
       if(me.stack===0){ state.acted[pid]=true; if(bothActedAndEqual() || bothCheckedThisStreet()) endStreet(); else { state.toAct=0; updateControls(); draw(); } return; }
@@ -377,44 +489,10 @@
     function showLog(){}
     resize();
     resetHand();
-    // Render heartbeat to avoid stalled frames on some mobile browsers
+    // Remove legacy watchdogs; the deterministic turn engine governs progression
     try { if (window.__renderTicker) clearInterval(window.__renderTicker); } catch {}
-    window.__renderTicker = setInterval(() => { try{ draw(); }catch{} }, 500);
-    // AI watchdog to guarantee action progresses if any trigger is missed
     try { if (window.__aiWatchdog) clearInterval(window.__aiWatchdog); } catch {}
-    window.__aiWatchdog = setInterval(() => {
-      try {
-        if (!state) return;
-        if (state.toAct===1 && !state.animating && state.street!=='showdown') {
-          aiAct();
-        }
-      } catch {}
-    }, 350);
-    // Street-closure watchdog to ensure progression
     try { if (window.__streetWatchdog) clearInterval(window.__streetWatchdog); } catch {}
-    window.__streetWatchdog = setInterval(() => {
-      try {
-        if (!state || state.animating || state.street==='showdown') return;
-        const bothActed = state.acted[0] && state.acted[1];
-        const betsEqual = state.betThisRound[0] === state.betThisRound[1];
-        if ((state.curBet>0 && betsEqual && bothActed) || (state.curBet===0 && bothActed)) {
-          endStreet();
-          return;
-        }
-        // If bot's turn lingers too long, force an action
-        if (state.toAct===1) {
-          const lingerMs = performance.now() - (state.streetStartedAt||performance.now());
-          if (lingerMs > 800 && !state.animating) {
-            aiAct();
-            return;
-          }
-        }
-        // Reveal consistency safeguard
-        if (state.street==='flop' && state.board.length>=3 && state.revealed.board<3) {
-          state.revealed.board=3; draw();
-        }
-      } catch {}
-    }, 400);
   })();
   </script>
 </body>

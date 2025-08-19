@@ -1,8 +1,6 @@
 <!doctype html>
 <html>
 <head>
-  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-9669595312999180"
-     crossorigin="anonymous"></script>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
   <title>LexiOrbit</title>
@@ -91,18 +89,7 @@
   </style>
 </head>
 <body>
-  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-9669595312999180"
-       crossorigin="anonymous"></script>
-  <!-- main -->
-  <ins class="adsbygoogle"
-       style="display:block"
-       data-ad-client="ca-pub-9669595312999180"
-       data-ad-slot="4945715008"
-       data-ad-format="auto"
-       data-full-width-responsive="true"></ins>
-  <script>
-       (adsbygoogle = window.adsbygoogle || []).push({});
-  </script>
+  
   <div id="app">
     <header>
       <h1>LexiOrbit</h1>
@@ -901,7 +888,8 @@
       ctx.font = `${Math.floor(CENTER_RADIUS * 0.6)}px Arial Black`;
       ctx.fillText(gameState.gameActive ? 'GO!' : 'START', centerX, centerY);
       
-      // Instructions (top-left) before START (hidden on mobile)
+      // Instructions (top-left) before START
+      // Desktop: detailed how-to
       if (!gameState.gameActive && !isMobile) {
         ctx.save();
         ctx.globalAlpha = 0.7;
@@ -920,6 +908,39 @@
         ];
         const left = 24, top = isMobile ? 6 : 24;
         lines.forEach((t, i) => ctx.fillText(t, left, top + i * (base * 1.26)));
+        ctx.restore();
+      }
+      // Mobile: brief top-left instruction per request
+      if (!gameState.gameActive && isMobile) {
+        ctx.save();
+        ctx.globalAlpha = 0.9;
+        ctx.fillStyle = '#fca5a5';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'top';
+        const base = Math.max(12, Math.floor(Math.min(cssW, cssH) * 0.030));
+        ctx.font = `bold ${base}px Segoe UI, Arial`;
+        const left = 12, top = 10;
+        const msg1 = "Click on the letter if you found a word that matches the category.";
+        const msg2 = "It's a trust game, don't just click letters";
+        // Wrap manually for narrow screens
+        const wrap = (text, maxW) => {
+          const words = text.split(' ');
+          const lines = []; let line = '';
+          for(const w of words){
+            const test = line ? line + ' ' + w : w;
+            if(ctx.measureText(test).width > maxW){ lines.push(line); line = w; }
+            else line = test;
+          }
+          if(line) lines.push(line);
+          return lines;
+        };
+        const maxW = Math.min(cssW * 0.82, 360);
+        const lines1 = wrap(msg1, maxW);
+        const lines2 = wrap(msg2, maxW);
+        let y = top;
+        lines1.forEach(l => { ctx.fillText(l, left, y); y += base * 1.12; });
+        ctx.fillStyle = '#fca5a5';
+        lines2.forEach(l => { ctx.fillText(l, left, y); y += base * 1.12; });
         ctx.restore();
       }
       

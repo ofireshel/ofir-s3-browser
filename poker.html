@@ -1,8 +1,6 @@
 <!doctype html>
 <html>
 <head>
-  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-9669595312999180"
-     crossorigin="anonymous"></script>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
   <title>Heads-Up Poker</title>
@@ -76,18 +74,7 @@
     </div>
     <footer></footer>
   </div>
-  <!-- AdSense moved to bottom to avoid pushing content on mobile -->
-  <div style="padding:10px 12px;">
-    <ins class="adsbygoogle"
-         style="display:block"
-         data-ad-client="ca-pub-9669595312999180"
-         data-ad-slot="4945715008"
-         data-ad-format="auto"
-         data-full-width-responsive="true"></ins>
-  </div>
-  <script>
-       (adsbygoogle = window.adsbygoogle || []).push({});
-  </script>
+  
   <script>
   (function(){
     'use strict';
@@ -233,6 +220,8 @@
 
     // Game state
     const SMALL_BLIND = 1, BIG_BLIND = 2, START_STACK = 200;
+    // Guard to prevent accidental double hand reset (which can double-post blinds)
+    let __lastResetAt = 0;
     // Background portrait image (royalty‑free). Replace URL to customize.
     const TABLE_BG_URL = 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=2400&q=80';
     const TABLE_BG_OPACITY = 0.18; // 0..1, how visible the photo sits behind the felt
@@ -522,32 +511,7 @@ function drawBetIndicator(anchorX, anchorY, amount, labelY){
       ctx.fillText(String(amount), textX, textY);
       ctx.restore();
     }
-    function drawDealerButton(x,y){
-      ctx.save();
-      ctx.translate(x,y);
-      const R = 14*DPR;
-      // Outer shadow
-      ctx.shadowColor = 'rgba(0,0,0,0.35)';
-      ctx.shadowBlur = 6*DPR;
-      // Gradient fill
-      const grad = ctx.createRadialGradient(-R*0.4, -R*0.4, R*0.4, 0, 0, R);
-      grad.addColorStop(0, '#f3f4f6');
-      grad.addColorStop(1, '#d1d5db');
-      ctx.beginPath(); ctx.arc(0,0, R, 0, Math.PI*2);
-      ctx.fillStyle = grad; ctx.fill();
-      // Outer ring
-      ctx.shadowBlur = 0;
-      ctx.strokeStyle='#111827'; ctx.lineWidth=2.2*DPR; ctx.stroke();
-      // Inner ring
-      ctx.beginPath(); ctx.arc(0,0, R-4*DPR, 0, Math.PI*2);
-      ctx.strokeStyle='#6b7280'; ctx.lineWidth=1.4*DPR; ctx.stroke();
-      // Letter D
-      ctx.fillStyle='#111827';
-      ctx.textAlign='center'; ctx.textBaseline='middle';
-      ctx.font = `${12*DPR}px Arial Black`;
-      ctx.fillText('D', 0, 0);
-      ctx.restore();
-    }
+    function drawDealerButton(x,y){ }
     // Suit colors: hearts/diamonds red, spades black, clubs dark green
     function suitColor(s){
       if(s===1 || s===2) return '#ef4444'; // hearts, diamonds
@@ -743,16 +707,54 @@ function positions(){
         drawCard(x,y, m.card, m.faceUp);
         if(t>=1){ state.moving=null; if(m.onDone) m.onDone(); }
       }
+      // Draw large bold 'D' near the current big blind player's name ON TOP
+      try{
+        let bbPid = 1 - state.dealer;
+        const namePos = bbPid===0 ? p.human.name : p.ai.name;
+        const baseNamePx = (isSmallScreen()?16:14) * DPR;
+        const dPx = Math.round(baseNamePx * 2);
+        const offset = (isSmallScreen()? 72: 96) * DPR;
+        let tx = namePos[0] + offset;
+        const margin = 12 * DPR;
+        if (tx + dPx > canvas.width - margin) tx = namePos[0] - offset - dPx;
+        const ty = namePos[1];
+        ctx.save();
+        ctx.textAlign='left'; ctx.textBaseline='middle';
+        ctx.font = `bold ${dPx}px Segoe UI`;
+        ctx.lineWidth = 3 * DPR; ctx.strokeStyle='rgba(0,0,0,0.6)';
+        ctx.strokeText('D', tx, ty);
+        ctx.fillStyle = '#f8fafc';
+        ctx.fillText('D', tx, ty);
+        ctx.restore();
+      }catch{}
       if((state.animating && !state.glAnimating) || state.moving) requestAnimationFrame(draw);
     }
 
     // Betting logic
     function resetHand(){
+      const nowTs = (typeof performance!=='undefined' ? performance.now() : Date.now());
+      if(nowTs - __lastResetAt < 400){
+        try{ console.warn('resetHand ignored to prevent double-post of blinds'); }catch{}
+        return;
+      }
+      __lastResetAt = nowTs;
       state.handId++; state.board=[]; state.pot=0; state.street='preflop'; state.curBet=0; state.betThisRound=[0,0]; state.players.forEach(p=>{p.hole=[]; p.folded=false;}); state.lastAggressor=-1; state.message='';
       state.dealer = 1 - state.dealer;
       state.deck = newDeck(); shuffle(state.deck);
-      postBlind(state.dealer, SMALL_BLIND);
-      postBlind(1-state.dealer, BIG_BLIND);
+      // Force exact 1/2 blinds every hand
+      const sbPid = state.dealer;
+      const bbPid = 1 - state.dealer;
+      // Reset bet state explicitly
+      state.betThisRound = [0,0]; state.pot = 0; state.curBet = 0;
+      // Deduct blinds from stacks and set state
+      const sbPay = Math.min(SMALL_BLIND, state.players[sbPid].stack);
+      const bbPay = Math.min(BIG_BLIND, state.players[bbPid].stack);
+      state.players[sbPid].stack -= sbPay;
+      state.players[bbPid].stack -= bbPay;
+      state.betThisRound[sbPid] = sbPay;
+      state.betThisRound[bbPid] = bbPay;
+      state.pot = sbPay + bbPay;
+      state.curBet = Math.max(sbPay, bbPay);
       for(let i=0;i<2;i++){
         state.players[state.dealer].hole.push(state.deck.pop());
         state.players[1-state.dealer].hole.push(state.deck.pop());
@@ -760,7 +762,6 @@ function positions(){
       state.revealed = { human:0, ai:0, board:0 };
       // Preflop: small blind (dealer) acts first; treat only big blind as already acted
       state.acted = [false, false];
-      state.acted[1 - state.dealer] = true;
       state.toAct = state.dealer;
       state.overlayShown = false;
       state.handAdvanced = false;
@@ -1140,13 +1141,8 @@ function positions(){
         toAct: state.toAct,
         pot: state.pot
       });
-
-      // Single-player: after a preflop call, always advance to flop to avoid stalls
-      if(!isMultiplayer && state.street==='preflop'){
-        state.acted = [true,true];
-        endStreet();
-        return;
-      }
+      
+      // Preflop flow: do not auto-advance here; street ends only when bets are equal and both players have acted
       
       // If an all-in has been called and bets are matched, immediately run out the board
       if(isAllInAndEqual()) { 
@@ -1169,14 +1165,7 @@ function positions(){
         if(bothActedAndEqual() || bothCheckedThisStreet()) { endStreet(); return; }
         if(!maybeAutoRunout() && !isMultiplayer && state.toAct===1 && !state.animating){ try { aiAct(); } catch { scheduleAI(0); } }
       }
-      // Safety: if preflop bets are equal shortly after a call, auto-close street
-      if(!isMultiplayer && state.street==='preflop'){
-        setTimeout(()=>{ try{
-          if(state.street==='preflop' && state.betThisRound[0]===state.betThisRound[1]){
-            endStreet();
-          }
-        }catch{} }, 250);
-      }
+      // No preflop auto-close safety; BB must get option to check/raise after SB calls
     }
     function playerBetOrRaise(pid, amount){
       if(isMultiplayer){
@@ -1816,6 +1805,53 @@ function positions(){
         scheduleAI, aiAct, playerCall, playerBetOrRaise, updateControls
       };
     }catch{}
+
+    function drawDealerButton(x,y){ }
+    function drawBigBlindIcon(x,y){
+      const R = (isSmallScreen()? 20:28) * DPR;
+      ctx.save();
+      ctx.translate(x,y);
+      // Outer soft shadow
+      ctx.shadowColor='rgba(0,0,0,0.38)';
+      ctx.shadowBlur=8*DPR;
+      // Base gradient (golden coin look)
+      const grad = ctx.createRadialGradient(-R*0.35, -R*0.35, R*0.3, 0, 0, R);
+      grad.addColorStop(0, '#ffd166');
+      grad.addColorStop(0.55, '#f6ad55');
+      grad.addColorStop(1, '#d97706');
+      ctx.beginPath(); ctx.arc(0,0,R,0,Math.PI*2); ctx.fillStyle=grad; ctx.fill();
+      // Outer rim
+      ctx.shadowBlur=0;
+      ctx.strokeStyle='#7c2d12'; ctx.lineWidth=2.6*DPR; ctx.stroke();
+      // Inner rim
+      ctx.beginPath(); ctx.arc(0,0,R-5*DPR,0,Math.PI*2); ctx.strokeStyle='rgba(255,255,255,0.55)'; ctx.lineWidth=1.4*DPR; ctx.stroke();
+      // Inset bevel ring
+      ctx.beginPath(); ctx.arc(0,0,R-10*DPR,0,Math.PI*2); ctx.strokeStyle='rgba(0,0,0,0.25)'; ctx.lineWidth=1.2*DPR; ctx.stroke();
+      // Decorative notches around the edge
+      const notchCount = 14; const notchLen = 6*DPR; const notchR = R - 2*DPR;
+      ctx.strokeStyle='rgba(255,255,255,0.6)'; ctx.lineWidth=1*DPR;
+      for(let k=0;k<notchCount;k++){
+        const a = (Math.PI*2/notchCount)*k;
+        const x1 = Math.cos(a)* (notchR - notchLen);
+        const y1 = Math.sin(a)* (notchR - notchLen);
+        const x2 = Math.cos(a)* (notchR);
+        const y2 = Math.sin(a)* (notchR);
+        ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+      }
+      // Center text 'BB'
+      const labelSize = (isSmallScreen()? 14:16) * DPR;
+      ctx.fillStyle='#1f2937';
+      ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.font = `${labelSize}px Arial Black`;
+      ctx.fillText('BB', 0, 0);
+      // Subtle glossy highlight
+      const gloss = ctx.createRadialGradient(-R*0.4, -R*0.6, R*0.2, 0,0,R*1.2);
+      gloss.addColorStop(0,'rgba(255,255,255,0.45)');
+      gloss.addColorStop(0.35,'rgba(255,255,255,0.18)');
+      gloss.addColorStop(1,'rgba(255,255,255,0)');
+      ctx.beginPath(); ctx.arc(0,0,R-1*DPR,0,Math.PI*2); ctx.fillStyle=gloss; ctx.fill();
+      ctx.restore();
+    }
   })();
   </script>
 </body>
