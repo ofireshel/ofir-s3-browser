@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
   <title>Heads-Up Poker</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/7.4.0/pixi.min.js"></script>
+  <link rel="preconnect" href="https://poker-multiplayer.xiachen.workers.dev">
+  <link rel="dns-prefetch" href="https://poker-multiplayer.xiachen.workers.dev">
   <style>
     :root {
       --bg1:#0b1220; --bg2:#0f172a; --felt1:#064e3b; --felt2:#052e2a; --felt3:#031a17;
@@ -28,6 +30,9 @@
     .amt { width:88px; padding:8px 10px; border-radius:10px; border:2px solid #475569; background:#0b1220; color:var(--text); font-weight:700; }
     .chip { padding:4px 10px; border-radius:999px; border:1px solid #334155; background:rgba(15,23,42,.6); color:#cbd5e1; }
     #log { position:absolute; left:50%; transform:translateX(-50%); top:12px; padding:6px 10px; border-radius:10px; background:rgba(2,6,23,0.7); border:1px solid #334155; color:#e2e8f0; font-weight:700; }
+    #connectingOverlay { position:absolute; inset:0; display:none; align-items:center; justify-content:center; background:rgba(2,6,23,0.85); z-index:25; }
+    #connectingOverlay .box { padding:16px 18px; border-radius:12px; background:rgba(15,23,42,0.95); border:1px solid #475569; color:#e2e8f0; font-weight:800; text-align:center; box-shadow: 0 10px 40px rgba(0,0,0,0.45); }
+    #connectingOverlay .sub { font-weight:600; color:#93c5fd; margin-top:6px; }
     .result { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); padding:18px 22px; border-radius:12px; background:rgba(2,6,23,0.88); border:1px solid #94a3b8; color:#f8fafc; font-weight:900; text-align:center; display:none; z-index:20; box-shadow: 0 20px 80px rgba(0,0,0,0.45); font-size: clamp(18px, 3.2vw, 34px); }
     footer { display:none; }
     .result .res-btn { margin-top:12px; padding:10px 16px; border-radius:10px; border:2px solid #475569; background:linear-gradient(135deg,#1e293b,#334155); color:#e2e8f0; font-weight:800; cursor:pointer; }
@@ -60,6 +65,7 @@
       <div id="glLayer"></div>
       <div id="result" class="result"></div>
       <div id="log" style="display:none"></div>
+      <div id="connectingOverlay"><div class="box">Connecting players and initializing game<div class="sub">Please wait…</div></div></div>
       <div id="hud">
         <button id="foldBtn" class="btn">Fold</button>
         <button id="checkCallBtn" class="btn">Check</button>
@@ -91,6 +97,23 @@
     let opponentName = urlParams.get('opponentName') || 'Opponent';
     let assignedPlayerId = null; // Will be set by server
     let heartbeatInterval = null; // For keeping Worker alive
+    let connecting = false; // Overlay until initial deal is ready
+    
+    function showConnectingOverlay(){
+      try{ const el=document.getElementById('connectingOverlay'); if(el) el.style.display='flex'; }catch{}
+      connecting = true;
+    }
+    function hideConnectingOverlay(){
+      try{ const el=document.getElementById('connectingOverlay'); if(el) el.style.display='none'; }catch{}
+      connecting = false;
+    }
+    function hasMyHoleCards(view){
+      try{
+        const myId = assignedPlayerId ?? 0;
+        const h = view && view.players && view.players[myId] && view.players[myId].hole;
+        return Array.isArray(h) && h[0] && h[1];
+      }catch{ return false; }
+    }
     
     // Initialize multiplayer connection
     if (isMultiplayer && gameId && myPlayerId) {
@@ -1200,8 +1223,8 @@ function positions(){
       const pid = isMultiplayer ? getMyId() : 0; 
       
       // In multiplayer, don't update controls until we have a valid assigned player ID
-      if (isMultiplayer && (assignedPlayerId === null || pid === null)) {
-        console.log('updateControls: waiting for assigned player ID', { assignedPlayerId, pid });
+      if (isMultiplayer && (assignedPlayerId === null || pid === null || connecting)) {
+        console.log('updateControls: waiting for assigned player ID / connecting overlay', { assignedPlayerId, pid, connecting });
         const disableAll = true;
         foldBtn.disabled = disableAll;
         checkCallBtn.disabled = disableAll;
@@ -1432,6 +1455,7 @@ function positions(){
       const wsUrl = `${protocol}//${workerUrl}/game/${gameId}`;
       
       console.log('Creating new WebSocket connection to:', wsUrl);
+      showConnectingOverlay();
       gameWs = new WebSocket(wsUrl);
       
       gameWs.onopen = function() {
@@ -1548,6 +1572,10 @@ function positions(){
               state.revealed.human = 2; state.revealed.ai = 0; state.revealed.board = Math.max(state.revealed.board, 5);
             } else if (state.street === 'showdown') {
               state.revealed.human = 2; state.revealed.ai = 2; state.revealed.board = 5;
+            }
+            // Hide overlay only once our hole cards exist (first deal ready)
+            if (hasMyHoleCards(data.state)) {
+              hideConnectingOverlay();
             }
             // Reset overlay flags when not in showdown so the next result can display
             if (state.street !== 'showdown') {

@@ -23,11 +23,15 @@
     #stains{z-index:3}
     #houses{z-index:2}
     #wind{z-index:0}
+    @media(max-width:700px){
+      body{padding-top:64px}
+    }
   </style>
 </head>
 <body>
   
   <h1>kuku 456</h1>
+  <a id="news-tile" href="news.html" style="position:fixed;right:16px;top:12px;display:inline-block;padding:10px 14px;background:#0e1629;border:1px solid #1f2a44;border-radius:8px;color:#93c5fd;text-decoration:none;z-index:9999">News Analysis</a>
   <canvas id="wind"></canvas>
   <canvas id="rain"></canvas>
   <canvas id="veg"></canvas>

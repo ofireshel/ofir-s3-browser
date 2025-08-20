@@ -56,7 +56,6 @@
       <a href="games.html">All Games</a>
     </header>
     <div id="stage">
-      <div style="position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 1000; font-size: 32px; color: red; font-weight: bold; background: rgba(255,255,255,0.8); padding: 10px 20px; border-radius: 5px;">IN TESTING</div>
       <canvas id="table"></canvas>
       <div id="glLayer"></div>
       <div id="result" class="result"></div>
@@ -244,13 +243,24 @@
       // Draw immediately so blind bet indicators are visible
       state.animating = false;
       draw();
-    
-      if (canvas.width < 10 || canvas.height < 10) {
-        setTimeout(startDealAnimation, 50);
-      } else {
-        startDealAnimation();
+     
+      // Start deal only when canvas has dimensions; retry briefly, then hard-fallback
+      function kickDealWhenReady(attempt){
+        const tries = attempt||0;
+        if(canvas.width>=10 && canvas.height>=10){
+          try { startDealAnimation(); return; } catch(e){ /* fall through to retry */ }
+        }
+        if(tries < 20){ setTimeout(()=>kickDealWhenReady(tries+1), 60); }
+        else {
+          // Hard fallback: reveal holes so first hand is visible even if animation failed
+          try {
+            state.revealed.human = 2; state.revealed.ai = 2;
+            state.animating=false; draw(); updateControls();
+          } catch {}
+        }
       }
-    
+      kickDealWhenReady(0);
+     
       // Failsafe for animation hangs
       setTimeout(() => {
         try {
@@ -488,7 +498,15 @@
     // Kick off
     function showLog(){}
     resize();
-    resetHand();
+    let __firstStarted = false;
+    function startFirstHandWhenReady(attempt){
+      if(__firstStarted) return;
+      const tries = attempt||0;
+      if(canvas && canvas.width>=10 && canvas.height>=10){ __firstStarted=true; resetHand(); return; }
+      if(tries<30){ setTimeout(()=>startFirstHandWhenReady(tries+1), 60); }
+      else { __firstStarted=true; resetHand(); }
+    }
+    startFirstHandWhenReady(0);
     // Remove legacy watchdogs; the deterministic turn engine governs progression
     try { if (window.__renderTicker) clearInterval(window.__renderTicker); } catch {}
     try { if (window.__aiWatchdog) clearInterval(window.__aiWatchdog); } catch {}

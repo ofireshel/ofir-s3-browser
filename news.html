@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>חדשות – סיכומים וניתוחים</title>
+  <style>
+    body{margin:0;font-family:Segoe UI,Arial,Helvetica,sans-serif;background:#0b1220;color:#e2e8f0}
+    header{position:sticky;top:0;background:#0e1629;border-bottom:1px solid #1f2a44;padding:12px 16px;z-index:2}
+    header h1{margin:0;font-size:18px}
+    main{max-width:980px;margin:0 auto;padding:16px}
+    .grid{display:grid;grid-template-columns:1fr;gap:16px}
+    @media(min-width:700px){.grid{grid-template-columns:1fr 1fr}}
+    article{background:#0e1629;border:1px solid #1f2a44;border-radius:10px;padding:14px}
+    article h2{margin:0 0 8px;font-size:18px}
+    article p{margin:8px 0;line-height:1.75;white-space:pre-wrap}
+    .meta{opacity:.8;font-size:12px;margin-top:6px}
+    .actions{display:flex;gap:10px;margin-top:8px}
+    .actions a{color:#93c5fd;text-decoration:none}
+    .refresh{font-size:12px;opacity:.75}
+    article{max-height:none}
+    *{overflow:visible}
+    .analysis{color:#ef4444}
+    .people{font-size:12px;opacity:.9}
+    .label{font-weight:700;opacity:.9}
+  </style>
+  <script>
+  async function loadNews(){
+    const el = document.getElementById('list');
+    const stamp = document.getElementById('stamp');
+    el.innerHTML = '<div>טוען חדשות…</div>';
+    try{
+      const resp = await fetch('/api/news');
+      if(!resp.ok){ throw new Error('שגיאה בטעינת חדשות: ' + resp.status); }
+      const data = await resp.json();
+      const items = (data.articles||[]);
+      el.innerHTML = items.map(a => `
+        <article>
+          <h2>${escapeHtml(a.title||'')}</h2>
+          ${renderPeople(a.people||[])}
+          <p class="summary">${escapeHtml(a.summary||'')}</p>
+          <p class="analysis"><span class="label">Analysis (EN): </span>${escapeHtml(a.analysis||'')}</p>
+          ${a.analysis_he ? `<p class="analysis"><span class="label">ניתוח (עברית): </span>${escapeHtml(a.analysis_he||'')}</p>` : ''}
+          <div class="meta">פורסם: ${escapeHtml(a.pubDate||'לא ידוע')}</div>
+          <div class="actions"><a href="${a.link}" target="_blank" rel="noopener">לכתבה המלאה ב־Ynet</a></div>
+        </article>
+      `).join('');
+      const t = new Date();
+      stamp.textContent = 'עודכן: ' + t.toLocaleString('he-IL');
+    }catch(e){
+      el.innerHTML = '<div>לא ניתן לטעון את החדשות כרגע.</div>';
+      console.error(e);
+    }
+  }
+  function renderPeople(list){
+    if(!list || !list.length) return '';
+    const rows = list.map(p=>{
+      const elect = p.elected===true? 'נבחר ציבור' : p.elected===false? 'לא נבחר' : 'לא ידוע';
+      const align = p.alignment==='right'? 'ימין' : p.alignment==='left'? 'שמאל' : 'לא ידוע';
+      return `<div>- ${escapeHtml(p.name)} — ${escapeHtml(elect)}, ${escapeHtml(align)}</div>`;
+    }).join('');
+    return `<div class="people">מיפוי דמויות:<br>${rows}</div>`;
+  }
+  function escapeHtml(s){
+    return (s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]));
+  }
+  addEventListener('load', ()=>{
+    loadNews();
+    setInterval(loadNews, 60*60*1000);
+  });
+  </script>
+  <meta name="robots" content="noindex" />
+  <link rel="icon" href="data:,">
+  <link rel="preconnect" href="https://www.ynet.co.il">
+  <link rel="dns-prefetch" href="https://www.ynet.co.il">
+  <meta http-equiv="Cache-Control" content="no-store" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+  </head>
+<body>
+  <header>
+    <h1>חדשות – סיכומים וניתוחים <span id="stamp" class="refresh"></span></h1>
+  </header>
+  <main>
+    <div id="list" class="grid"></div>
+  </main>
+</body>
+</html>
+
+

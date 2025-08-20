@@ -342,12 +342,7 @@ export class PokerGame {
     
     // When first player joins, send waiting notice
     if (this.players.size === 1) {
-    connection.ws.send(JSON.stringify({
-      type: 'game_ready',
-        myPlayerId: 0,
-        opponent: null,
-        playersConnected: 1
-      }));
+      connection.ws.send(JSON.stringify({ type: 'game_ready', myPlayerId: 0, opponent: null, playersConnected: 1 }));
       return;
     }
 
@@ -358,18 +353,19 @@ export class PokerGame {
       // Seat order: join order (Map iteration order is insertion order)
       this.gameState = this.createInitialGameState(seats[0], seats[1]);
       this.started = true;
-      // Notify both players of readiness with their seat index
-      seats.forEach((p, idx) => {
-        p.connection.ws.send(JSON.stringify({
-          type: 'game_ready',
-          myPlayerId: idx,
-          opponent: this.getOpponentInfo(p.id),
-          playersConnected: 2
-        }));
-      });
-      // Start first hand and broadcast initial state
+      // Start first hand and immediately broadcast initial state (single frame) for faster client init
       this.startNewHand();
-      this.broadcastState();
+      // Send a single compact init message per player (combines ready + first state)
+      seats.forEach((p, idx) => {
+        try{
+          p.connection.ws.send(JSON.stringify({
+            type: 'game_state',
+            myPlayerId: idx,
+            state: this.viewFor(idx),
+            opponent: this.getOpponentInfo(p.id)
+          }));
+        }catch(e){ console.log('init send failed', e); }
+      });
     }
   }
   
