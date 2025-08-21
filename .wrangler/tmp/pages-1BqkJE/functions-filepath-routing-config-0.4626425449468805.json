@@ -1,0 +1,37 @@
+{
+  "routes": [
+    {
+      "routePath": "/api/news",
+      "mountPath": "/api",
+      "method": "GET",
+      "module": [
+        "api/news.js:onRequestGet"
+      ]
+    },
+    {
+      "routePath": "/api/scores",
+      "mountPath": "/api",
+      "method": "GET",
+      "module": [
+        "api/scores.js:onRequestGet"
+      ]
+    },
+    {
+      "routePath": "/api/scores",
+      "mountPath": "/api",
+      "method": "POST",
+      "module": [
+        "api/scores.js:onRequestPost"
+      ]
+    },
+    {
+      "routePath": "/api/stt",
+      "mountPath": "/api",
+      "method": "POST",
+      "module": [
+        "api/stt.js:onRequestPost"
+      ]
+    }
+  ],
+  "baseURL": "/"
+}

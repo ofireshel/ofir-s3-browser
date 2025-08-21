@@ -30,8 +30,8 @@
     canvas { width: 100vw; height: calc(100vh - 64px); display: block; background: repeating-linear-gradient(90deg, var(--turf), var(--turf) 40px, var(--turf-dark) 40px, var(--turf-dark) 80px); touch-action: none; }
     footer { padding: 10px; color: #94a3b8; text-align: center; }
     .btn { padding: 8px 12px; border-radius: 10px; border: 2px solid #475569; background: linear-gradient(135deg, #1e293b, #334155); color: var(--text); font-weight: 700; text-decoration: none; }
-    .padbtn, .actbtn { width: 60px; height: 60px; background: rgba(30,41,59,.8); border: 2px solid #475569; border-radius: 12px; color: var(--text); font-weight: 800; font-size: 16px; }
-    .actbtn { width: 90px; height: 52px; font-size: 15px; }
+    .padbtn, .actbtn { width: 58px; height: 58px; background: rgba(30,41,59,.8); border: 2px solid #475569; border-radius: 12px; color: var(--text); font-weight: 800; font-size: 16px; }
+    .actbtn { width: 86px; height: 50px; font-size: 15px; }
     .padbtn:active, .actbtn:active { transform: translateY(1px); }
     @media (max-width: 820px) {
       #dock { left: 50% !important; right: auto !important; bottom: calc(80px + env(safe-area-inset-bottom)) !important; transform: translateX(-50%) !important; gap: 16px !important; }
@@ -46,7 +46,7 @@
     <header>
       <a href="games.html">← All Games</a>
       <div style="flex:1"></div>
-      <div>Arcade Football</div>
+      <div>Fruity Football</div>
     </header>
     <main>
       <canvas id="field" width="960" height="560"></canvas>
@@ -56,8 +56,8 @@
         C: change receiver • R: reset play
       </div>
       <div id="announce" style="position:absolute;left:50%;top:18px;transform:translateX(-50%);background:rgba(0,0,0,.35);border:2px solid rgba(248,113,113,.55);padding:10px 16px;border-radius:14px;font-weight:900;letter-spacing:1px;display:none;text-align:center;max-width:90%"></div>
-      <div id="dock" style="position:absolute;left:50%;bottom:14px;transform:translateX(-50%);display:flex;align-items:center;gap:16px;user-select:none;touch-action:none">
-        <div id="pad" style="display:grid;grid-template-columns:60px 60px 60px;grid-template-rows:60px 60px 60px;gap:8px">
+      <div id="dock" style="position:absolute;left:50%;bottom:calc(14px + env(safe-area-inset-bottom));transform:translateX(-50%);display:flex;align-items:center;gap:16px;user-select:none;touch-action:none">
+        <div id="pad" style="display:grid;grid-template-columns:58px 58px 58px;grid-template-rows:58px 58px 58px;gap:8px">
           <div></div>
           <button data-key="ArrowUp" class="padbtn">W</button>
           <div></div>
@@ -140,6 +140,8 @@
       levelIntroMs: 0,
       mouse: {x: W/2, y:H/2},
       lastMoveDir: {x:0, y:-1},
+      boostMs: 0,
+      boostCooldownMs: 0,
     };
 
     function yardToY(yard){
@@ -244,7 +246,7 @@
     }
 
     window.addEventListener('keydown', (e)=>{
-      const handledKeys = ['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','w','a','s','d','W','A','S','D',' ' ,'Shift','c','C','e','E','r','R'];
+      const handledKeys = ['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','w','a','s','d','W','A','S','D',' ' ,'Shift','c','C','e','E','r','R','b','B'];
       if(handledKeys.includes(e.key)) e.preventDefault();
       keys.add(e.key);
       // Start automatically when any movement key is pressed
@@ -253,6 +255,7 @@
       if(e.key===' ') { startPlay(); }
       if(e.key==='c' || e.key==='C') state.activeReceiver = (state.activeReceiver+1)%state.receivers.length;
       if(e.key==='e' || e.key==='E') tryDash();
+      if(e.key==='b' || e.key==='B') tryBoost();
       if(e.key==='r' || e.key==='R') { state.gameOver = false; resetPlay(25); }
     });
     window.addEventListener('keyup', (e)=>{
@@ -294,6 +297,8 @@
     });
     // dash button (mobile)
     try { const dashBtn = document.getElementById('dashBtn'); if(dashBtn){ dashBtn.addEventListener('click', (e)=>{ e.preventDefault(); tryDash(); }); } } catch(_){ }
+    // boost button (mobile + desktop): 200% speed for 0.5s
+    // Removed on-screen boost button; use keyboard B or tryBoost via other UI if added later
     // passing removed
 
     function getMoveVector(){
@@ -443,6 +448,7 @@
       // If dashing, override movement to force a quick retreat "down" the field
       let useVec = m;
       let speed = BASE_SPEED * PLAYER_SPEED_BONUS * (m.sprint ? SPRINT_MULT : 1);
+      if(state.boostMs>0) speed *= 2.0; // 200% speed during boost
       if(state.dashing){
         useVec = state.dashVec; // predetermined random vector with positive Y
         speed = BASE_SPEED * 10; // x10 pace
@@ -451,8 +457,14 @@
       state.sprint = m.sprint;
       // Smooth acceleration
       const prevY_qb = state.qb.y;
-      state.qb.vx += (useVec.vx * speed - state.qb.vx) * ACCEL;
-      state.qb.vy += (useVec.vy * speed - state.qb.vy) * ACCEL;
+      const accelNow = (state.boostMs>0) ? ACCEL * 2.5 : ACCEL; // react faster during boost
+      state.qb.vx += (useVec.vx * speed - state.qb.vx) * accelNow;
+      state.qb.vy += (useVec.vy * speed - state.qb.vy) * accelNow;
+      // Small immediate impulse so boost is felt instantly
+      if(state.boostMs>0 && Math.hypot(m.vx,m.vy)>0.1){
+        state.qb.vx += useVec.vx * BASE_SPEED * 0.4;
+        state.qb.vy += useVec.vy * BASE_SPEED * 0.4;
+      }
       if(Math.hypot(m.vx, m.vy) > 0.01){ state.lastMoveDir = { x: m.vx, y: m.vy }; }
       state.qb.x = clamp(state.qb.x + state.qb.vx, 40, W-40);
       state.qb.y = clamp(state.qb.y + state.qb.vy, 30, H-30);
@@ -492,6 +504,7 @@
         const m = getMoveVector();
         let useVec = m;
         let speed = BASE_SPEED * PLAYER_SPEED_BONUS * (m.sprint ? SPRINT_MULT : 1);
+        // Boost only applies to QB, not receivers
         if(state.dashing){ useVec = state.dashVec; speed = BASE_SPEED * 10; }
         const prevY_r = r.y;
         speed *= CARRIER_MULT;
@@ -694,6 +707,8 @@
       }
       // ability timers
       state.dashMs = Math.max(0, state.dashMs - dt);
+      state.boostMs = Math.max(0, (state.boostMs||0) - dt);
+      state.boostCooldownMs = Math.max(0, (state.boostCooldownMs||0) - dt);
       if(state.dashing && state.dashMs<=0){ state.dashing=false; }
       state.levelIntroMs = Math.max(0, (state.levelIntroMs||0) - dt);
       if(state.snapped){
@@ -916,7 +931,7 @@
       // Hide control dock while in game over to let the player choose
       const dock = document.getElementById('dock'); if(dock) dock.style.display='none';
       const proceedLabel = (state.pendingNextLevel ? `Proceed to level ${state.pendingNextLevel}` : 'Play again');
-      el.innerHTML = `<span style="display:block;background:linear-gradient(180deg,#ff4d4d,#b91c1c);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;font-weight:900;">${msg}</span><div style="margin-top:10px;display:flex;gap:12px;justify-content:center"><button id="playAgainYes" class="actbtn" aria-label="Play again" style="-webkit-text-fill-color:#e2e8f0;color:#e2e8f0;">${proceedLabel}</button><button id="playAgainNo" class="actbtn" aria-label="Back to menu" style="-webkit-text-fill-color:#e2e8f0;color:#e2e8f0;">Nah I'm good</button></div>`;
+      el.innerHTML = `<span style="display:block;background:linear-gradient(180deg,#ff4d4d,#b91c1c);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;font-weight:900;">${msg}</span><div style="margin-top:14px;display:flex;gap:16px;justify-content:center"><button id=\"playAgainYes\" class=\"actbtn\" aria-label=\"Play again\" style=\"transform:scale(1.08);padding:10px 28px;-webkit-text-fill-color:#e2e8f0;color:#e2e8f0;\">Play again</button><button id=\"playAgainNo\" class=\"actbtn\" aria-label=\"Back to menu\" style=\"transform:scale(1.08);padding:10px 28px;-webkit-text-fill-color:#e2e8f0;color:#e2e8f0;\">Nah I'm good</button></div>`;
       el.style.display = 'block';
       el.style.opacity = '1';
       el.style.transition = '';
@@ -946,12 +961,7 @@
     function drawAbilityHud(){
       const x=W-130, y=10, w=110, h=8;
       ctx.save();
-      ctx.fillStyle='rgba(0,0,0,0.35)';
-      ctx.fillRect(x-6,y-6,w+12, h+12);
-      // Dash cooldown bar
-      ctx.fillStyle='#334155'; ctx.fillRect(x,y,w,h);
-      const frac = 1 - Math.min(1, state.dashCooldownMs/2500);
-      ctx.fillStyle='#22c55e'; ctx.fillRect(x,y,w*frac,h);
+      // Sliders removed per request
       ctx.restore();
     }
     function tryDash(){
@@ -964,6 +974,24 @@
       state.dashVec = { vx, vy };
       state.dashing = true;
       state.dashMs=360; state.dashCooldownMs=2200;
+    }
+
+    function tryBoost(){
+      if(!state.snapped){ startPlay(); }
+      if((state.boostMs||0)>0 || (state.boostCooldownMs||0)>0) return;
+      // Only allow boost when QB has the ball
+      if(state.hasBall!=='qb') return;
+      const mv = getMoveVector();
+      // If no live key vector (e.g., mouse click), use lastMoveDir
+      const dirx = Math.abs(mv.vx)>0.1 || Math.abs(mv.vy)>0.1 ? mv.vx : (state.lastMoveDir.x||0);
+      const diry = Math.abs(mv.vx)>0.1 || Math.abs(mv.vy)>0.1 ? mv.vy : (state.lastMoveDir.y||0);
+      if(Math.hypot(dirx, diry) < 0.1) return; // must have some direction
+      state.boostMs = 500; // 0.5s
+      state.boostCooldownMs = 1200; // short cooldown
+      // Immediate impulse in the intended direction to make it feel instantaneous
+      state.qb.vx += dirx * BASE_SPEED * 0.6;
+      state.qb.vy += diry * BASE_SPEED * 0.6;
+      showCenterMessage('Boost!');
     }
   })();
   </script>
