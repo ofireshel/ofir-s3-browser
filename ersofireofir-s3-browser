@@ -1,0 +1,31 @@
+warning: in the working copy of 'index.html', LF will be replaced by CRLF the next time Git touches it
+[1mdiff --git a/index.html b/index.html[m
+[1mindex 69a9d7b..7a2bebc 100644[m
+[1m--- a/index.html[m
+[1m+++ b/index.html[m
+[36m@@ -1,12 +1,16 @@[m
+[31m-﻿<!doctype html>[m
+[31m-<html>[m
+[31m-<head>[m
+[31m-  <meta charset="utf-8">[m
+[31m-  <title>Physics Cat + Wind</title>[m
+[31m-  <meta name="viewport" content="width=device-width, initial-scale=1">[m
+[31m-  <script src="https://unpkg.com/three@0.159.0/build/three.min.js"></script>[m
+[31m-  <style>[m
+[31m-    html,body{height:100%;margin:0}[m
+[32m+[m[32m﻿<!DOCTYPE html>[m
+[32m+[m[32m<html lang="he" dir="rtl">[m
+[32m+[m[32m  <head>[m
+[32m+[m[32m    <meta charset="UTF-8" />[m
+[32m+[m[32m    <link rel="icon" type="image/svg+xml" href="/vite.svg" />[m
+[32m+[m[32m    <meta name="viewport" content="width=device-width, initial-scale=1.0" />[m
+[32m+[m[32m    <title>הבגידה</title>[m
+[32m+[m[32m  </head>[m
+[32m+[m[32m  <body>[m
+[32m+[m[32m    <div id="root"></div>[m
+[32m+[m[32m    <script type="module" src="/src/main.jsx"></script>[m
+[32m+[m[32m  </body>[m
+[32m+[m[32m</html>[m
+     body{background:#0b1220;color:#e2e8f0;font-family:Segoe UI,Arial,sans-serif;overflow:hidden}[m
+     h1{position:fixed;left:16px;top:12px;margin:0;font-size:18px;opacity:.9;z-index:3}[m
+     #cat{position:fixed;left:0;top:0;will-change:transform;z-index:4}[m

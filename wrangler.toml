@@ -1,19 +1,7 @@
-name = "lexiorbit"
-compatibility_date = "2024-05-12"
+name = "bgida"
+compatibility_date = "2024-01-01"
 pages_build_output_dir = "."
 
-[[kv_namespaces]]
-binding = "SCORES"
-id = "86e1ee11d1b54c00a2ec4b64d6c53a85"
-
 [vars]
-# Set OPENAI_API_KEY in the Pages dashboard for server STT
-# OPENAI_API_KEY = ""
-
-[ai]
-# Bind Workers AI runtime to env.AI
-binding = "AI"
-
-# Remove invalid routes block for Pages
 
 

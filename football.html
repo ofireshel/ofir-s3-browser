@@ -31,7 +31,7 @@
     footer { padding: 10px; color: #94a3b8; text-align: center; }
     .btn { padding: 8px 12px; border-radius: 10px; border: 2px solid #475569; background: linear-gradient(135deg, #1e293b, #334155); color: var(--text); font-weight: 700; text-decoration: none; }
     .padbtn, .actbtn { width: 58px; height: 58px; background: rgba(30,41,59,.8); border: 2px solid #475569; border-radius: 12px; color: var(--text); font-weight: 800; font-size: 16px; }
-    .actbtn { width: 86px; height: 50px; font-size: 15px; }
+    .actbtn { width: 140px; height: 50px; font-size: 15px; }
     .padbtn:active, .actbtn:active { transform: translateY(1px); }
     @media (max-width: 820px) {
       #dock { left: 50% !important; right: auto !important; bottom: calc(80px + env(safe-area-inset-bottom)) !important; transform: translateX(-50%) !important; gap: 16px !important; }
@@ -68,6 +68,7 @@
           <button data-key="ArrowDown" class="padbtn">S</button>
           <div></div>
         </div>
+        <button id="panicBtn" class="actbtn" style="display:none; width: 120px; height: 50px; font-size: 12px; background: linear-gradient(135deg, #dc2626, #b91c1c); border: 2px solid #991b1b; color: white;">PANIC!</button>
       </div>
     </main>
     <footer>
@@ -136,6 +137,17 @@
       dashCooldownMs: 0,
       dashVec: { vx: 0, vy: 1 },
       dashing: false,
+      // panic button ability
+      panicMs: 0,
+      panicCooldownMs: 0,
+      panicVec: { vx: 0, vy: 0 },
+      panicking: false,
+      panicBtnVisible: false,
+      lastPanicCheck: 0,
+      // background music
+      bgMusicSource: null,
+      bgMusicGain: null,
+      bgMusicPlaying: false,
       projectiles: [],
       levelIntroMs: 0,
       mouse: {x: W/2, y:H/2},
@@ -159,6 +171,13 @@
       state.scored = false;
       state.hasBall = 'qb';
       state.projectiles = [];
+      // Reset panic button state
+      state.panicking = false;
+      state.panicMs = 0;
+      state.panicBtnVisible = false;
+      document.getElementById('panicBtn').style.display = 'none';
+      // Stop background music
+      stopBgMusic();
       if(typeof newSpot === 'number') state.ballOnYard = Math.max(1, Math.min(99, newSpot));
       state.lineOfScrimmageYard = state.ballOnYard;
       const cx = (LEFT_HASH+RIGHT_HASH)/2;
@@ -191,8 +210,8 @@
             ...Array(3).fill('orange'),
             ...Array(2).fill('pear')
           ];
-      // Add one extra fruit every 2 levels (slower ramp), capped
-      const extra = Math.min(5, Math.floor(Math.max(0, (state.level||1) - 1) / 2));
+      // Add one extra fruit every 3 levels (very slow ramp), capped
+      const extra = Math.min(3, Math.floor(Math.max(0, (state.level||1) - 1) / 3));
       const fruits = base.concat(Array(extra).fill(isMobile ? 'apple' : 'banana'));
       // Dynamic spacing based on field position: farther when far from end zone, closer when near
       const yardsToTD = Math.max(0, 100 - state.ballOnYard);
@@ -242,6 +261,8 @@
         state.playStartMs = performance.now();
         playWhistle();
         announceDown();
+        // Start background music when play begins
+        startBgMusic();
       }
     }
 
@@ -300,6 +321,29 @@
     // boost button (mobile + desktop): 200% speed for 0.5s
     // Removed on-screen boost button; use keyboard B or tryBoost via other UI if added later
     // passing removed
+
+    // Panic button handler
+    const panicBtn = document.getElementById('panicBtn');
+    panicBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      if(!state.snapped || state.gameOver || state.panicking) return;
+
+      // Generate random backwards direction (always towards bottom of screen = own endzone)
+      const backwardsAngle = Math.PI + (Math.random() - 0.5) * Math.PI; // 180° ± 90° = 90° to 270°
+      state.panicVec.vx = Math.cos(backwardsAngle);
+      state.panicVec.vy = Math.sin(backwardsAngle);
+
+      // Ensure it's always moving backwards (positive Y = towards bottom)
+      if(state.panicVec.vy < 0.3) state.panicVec.vy = 0.3 + Math.random() * 0.7;
+
+      state.panicking = true;
+      state.panicMs = 800; // 0.8 seconds of panic
+      state.panicBtnVisible = false;
+      panicBtn.style.display = 'none';
+
+      // Play panic sound based on field position
+      playPanicSound();
+    });
 
     function getMoveVector(){
       let vx=0, vy=0;
@@ -388,9 +432,29 @@
         d.x += d.vx; d.y += d.vy;
         if(reactNow){ d.reactAccum = 0; d.reactDelay = Math.random()*(DEF_REACT_MAX_MS-DEF_REACT_MIN_MS)+DEF_REACT_MIN_MS; }
         // Only some fruits are shooters at the start of a down; lazily assign per-play flag
-        if(d.canShoot == null){ d.canShoot = Math.random() < 0.6; } // 60% will shoot this down
-        // Shoot leaf toward carrier for apples, oranges, pears (that canShoot)
-        if(state.snapped && d.canShoot && d.leafCooldown<=0 && (d.type==='apple' || d.type==='orange' || d.type==='pear')){
+        // Scale shooting probability based on level (starts low, increases slowly)
+        if(d.canShoot == null){
+          const baseShootChance = 0.25; // Start at 25% in early levels
+          const levelBonus = Math.min(0.4, (state.level - 1) * 0.06); // +6% per level, max +40%
+          const shootChance = Math.min(0.65, baseShootChance + levelBonus); // Cap at 65%
+          d.canShoot = Math.random() < shootChance;
+        }
+
+        // Determine which fruit types can shoot based on level
+        const canShootTypes = [];
+        if(d.type==='apple' || d.type==='orange' || d.type==='pear'){
+          canShootTypes.push(d.type);
+        }
+        // Add more types as levels increase (more gradual progression)
+        if(state.level >= 5 && d.type==='banana'){
+          canShootTypes.push('banana'); // Bananas start shooting at level 5
+        }
+        if(state.level >= 8 && d.type==='apple'){
+          canShootTypes.push('apple'); // Extra apples at level 8+
+        }
+
+        // Shoot leaf toward carrier for fruits that can shoot
+        if(state.snapped && d.canShoot && d.leafCooldown<=0 && canShootTypes.length > 0){
           const carrier = (state.hasBall==='qb') ? state.qb : (typeof state.hasBall==='number' ? state.receivers[state.hasBall] : state.qb);
           // Smart aim: bias aim slightly toward player's current velocity when chasing from behind
           let aimX = carrier.x, aimY = carrier.y;
@@ -417,9 +481,11 @@
               };
             }
             state.projectiles.push(proj);
-            // Increase fire rate more gradually: +5% per level
-            const rateMult = 1 + 0.05 * Math.max(0, (state.level||1) - 1);
-            d.leafCooldown = (900 + Math.random()*1200) / rateMult;
+            // Increase fire rate gradually as levels progress
+            const baseCooldown = 900 + Math.random()*1200; // 900-2100ms base
+            const levelReduction = Math.min(0.4, (state.level - 1) * 0.05); // -5% per level, max -40%
+            const rateMult = 1 + levelReduction;
+            d.leafCooldown = baseCooldown / rateMult;
           }
         }
       }
@@ -445,11 +511,14 @@
 
     function updateQB(){
       const m = getMoveVector();
-      // If dashing, override movement to force a quick retreat "down" the field
+      // Priority: panic > dash > normal movement
       let useVec = m;
       let speed = BASE_SPEED * PLAYER_SPEED_BONUS * (m.sprint ? SPRINT_MULT : 1);
       if(state.boostMs>0) speed *= 2.0; // 200% speed during boost
-      if(state.dashing){
+      if(state.panicking){
+        useVec = state.panicVec; // predetermined panic vector
+        speed = BASE_SPEED * 5; // 5x speed during panic
+      } else if(state.dashing){
         useVec = state.dashVec; // predetermined random vector with positive Y
         speed = BASE_SPEED * 10; // x10 pace
       }
@@ -474,7 +543,11 @@
       if(state.dashing){
         if(state.qb.y >= H-30 || state.qb.x <= 40 || state.qb.x >= W-40){ state.dashing=false; state.dashMs=0; }
       }
-      if(state.hasBall==='qb') placeBallOnQB();
+      if(state.hasBall==='qb') {
+        placeBallOnQB();
+        // Update ball position in yards for music intensity
+        state.ballOnYard = Math.max(0, yToYard(state.qb.y));
+      }
     }
 
     function updateBall(){
@@ -516,6 +589,8 @@
           if(r.y >= H-30 || r.x <= 40 || r.x >= W-40){ state.dashing=false; state.dashMs=0; }
         }
         state.ballPos.x = r.x; state.ballPos.y = r.y-6;
+        // Update ball position in yards for music intensity when receiver has ball
+        state.ballOnYard = Math.max(0, yToYard(r.y));
       }
     }
 
@@ -526,6 +601,7 @@
       if(reason==='touchdown' || spotYardsInt>=100){
         state.scored = true;
         state.playActive = false; state.snapped = false; state.gameOver = true;
+        stopBgMusic(); // Stop background music on touchdown
         playCrowdRoar();
         const downsUsed = state.down;
         const nextLevel = Math.min(999, (state.level||1) + 1);
@@ -536,6 +612,7 @@
       }
       // Clear all leaves at the end of a play
       try{ state.projectiles = []; }catch(_){ state.projectiles = []; }
+      stopBgMusic(); // Stop background music on any play end
       let gained = spotYardsExact - state.lineOfScrimmageYard;
       if(reason==='incomplete') gained = 0; // incomplete pass: no yardage
       // Reduce yards to go but never reset to a new first down
@@ -572,6 +649,7 @@
       if(state.dashMs>0){ if(cy<=30){ whistleDead('touchdown'); } return; }
       for(const d of state.defenders){
         if(distance(d,{x:cx,y:cy}) <= PLAYER_R + DEFENDER_R - CONTACT_PAD){
+          stopBgMusic(); // Stop music immediately on tackle
           whistleDead('tackle'); return;
         }
       }
@@ -709,8 +787,39 @@
       state.dashMs = Math.max(0, state.dashMs - dt);
       state.boostMs = Math.max(0, (state.boostMs||0) - dt);
       state.boostCooldownMs = Math.max(0, (state.boostCooldownMs||0) - dt);
+      state.panicMs = Math.max(0, state.panicMs - dt);
       if(state.dashing && state.dashMs<=0){ state.dashing=false; }
+      if(state.panicking && state.panicMs<=0){ state.panicking=false; }
       state.levelIntroMs = Math.max(0, (state.levelIntroMs||0) - dt);
+
+      // Show panic button when defenders are closing in
+      if(state.snapped && state.playActive && !state.gameOver && !state.panicking && !state.panicBtnVisible){
+        state.lastPanicCheck += dt;
+        if(state.lastPanicCheck > 500){ // Check every 0.5 seconds
+          state.lastPanicCheck = 0;
+
+          // Check if any defender is within danger distance
+          let closestDefenderDist = Infinity;
+          for(const d of state.defenders){
+            const dist = Math.hypot(d.x - state.qb.x, d.y - state.qb.y);
+            if(dist < closestDefenderDist) closestDefenderDist = dist;
+          }
+
+          // Show panic button if defender is within 120 pixels (danger zone)
+          if(closestDefenderDist <= 120){
+            state.panicBtnVisible = true;
+            panicBtn.style.display = 'block';
+            // Hide after 2 seconds if not clicked (shorter time when in danger)
+            setTimeout(() => {
+              if(state.panicBtnVisible && !state.panicking){
+                state.panicBtnVisible = false;
+                panicBtn.style.display = 'none';
+              }
+            }, 2000);
+          }
+        }
+      }
+
       if(state.snapped){
         // Enforce max play duration (20s) to always end a down
         if(state.playStartMs && performance.now() - state.playStartMs > 20000){ whistleDead('tackle'); return; }
@@ -718,6 +827,8 @@
         updateReceivers();
         updateDefenders();
         updateBall();
+        // Update background music parameters based on current position
+        updateBgMusic();
         // update projectiles
         if(state.projectiles && state.projectiles.length){
           const keep = [];
@@ -914,6 +1025,230 @@
         const gain = ac.createGain(); gain.gain.setValueAtTime(0.0001, ac.currentTime); gain.gain.exponentialRampToValueAtTime(0.6, ac.currentTime+0.05); gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime+len);
         noise.connect(filter).connect(gain).connect(ac.destination);
         noise.start(); noise.stop(ac.currentTime + len);
+      }catch(_){/* ignore */}
+    }
+
+    function playPanicSound(){
+      try{
+        const ac = new (window.AudioContext||window.webkitAudioContext)();
+        const len = 0.8;
+
+        // Calculate excitement based on yards to endzone (closer = more exciting)
+        const yardsToEndzone = Math.max(0, 100 - state.ballOnYard);
+        const excitement = Math.min(1, yardsToEndzone / 80); // 0 to 1 scale
+
+        // Create layered panic sound
+        const oscillators = [];
+
+        // High-pitched panic tone (gets higher with excitement)
+        const osc1 = ac.createOscillator();
+        osc1.type = 'sawtooth';
+        osc1.frequency.setValueAtTime(800 + excitement * 400, ac.currentTime);
+        osc1.frequency.exponentialRampToValueAtTime(1200 + excitement * 600, ac.currentTime + len);
+        oscillators.push(osc1);
+
+        // Medium panic tone
+        const osc2 = ac.createOscillator();
+        osc2.type = 'square';
+        osc2.frequency.setValueAtTime(400 + excitement * 200, ac.currentTime);
+        osc2.frequency.exponentialRampToValueAtTime(600 + excitement * 300, ac.currentTime + len);
+        oscillators.push(osc2);
+
+        // Low rumble (more intense with excitement)
+        const osc3 = ac.createOscillator();
+        osc3.type = 'triangle';
+        osc3.frequency.setValueAtTime(150 + excitement * 100, ac.currentTime);
+        osc3.frequency.exponentialRampToValueAtTime(200 + excitement * 150, ac.currentTime + len);
+        oscillators.push(osc3);
+
+        // Connect oscillators with varying gains
+        const masterGain = ac.createGain();
+        masterGain.gain.setValueAtTime(0.0001, ac.currentTime);
+        masterGain.gain.exponentialRampToValueAtTime(0.4 + excitement * 0.3, ac.currentTime + 0.05);
+        masterGain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + len);
+
+        oscillators.forEach((osc, i) => {
+          const gain = ac.createGain();
+          const gainValue = i === 0 ? 0.6 : i === 1 ? 0.4 : 0.3; // Different volumes for each layer
+          gain.gain.setValueAtTime(gainValue, ac.currentTime);
+          osc.connect(gain).connect(masterGain);
+          osc.start();
+          osc.stop(ac.currentTime + len);
+        });
+
+        masterGain.connect(ac.destination);
+      }catch(_){/* ignore */}
+    }
+
+    function startBgMusic(){
+      if(state.bgMusicPlaying) return;
+      try{
+        const ac = new (window.AudioContext||window.webkitAudioContext)();
+
+        // Musical melody notes (C major scale)
+        const melodyNotes = [
+          261.63, // C4
+          293.66, // D4
+          329.63, // E4
+          349.23, // F4
+          392.00, // G4
+          440.00, // A4
+          493.88, // B4
+          523.25, // C5
+        ];
+
+        // Bass line notes
+        const bassNotes = [
+          130.81, // C3
+          146.83, // D3
+          164.81, // E3
+          174.61, // F3
+        ];
+
+        // Create melody oscillator
+        const melodyOsc = ac.createOscillator();
+        melodyOsc.type = 'sine';
+        melodyOsc.frequency.setValueAtTime(melodyNotes[0], ac.currentTime);
+
+        // Create bass oscillator
+        const bassOsc = ac.createOscillator();
+        bassOsc.type = 'triangle';
+        bassOsc.frequency.setValueAtTime(bassNotes[0], ac.currentTime);
+
+        // Create harmony oscillator
+        const harmonyOsc = ac.createOscillator();
+        harmonyOsc.type = 'sine';
+        harmonyOsc.frequency.setValueAtTime(melodyNotes[0] * 1.25, ac.currentTime); // Perfect fifth
+
+        // Create gains
+        const melodyGain = ac.createGain();
+        melodyGain.gain.setValueAtTime(0.25, ac.currentTime);
+
+        const bassGain = ac.createGain();
+        bassGain.gain.setValueAtTime(0.3, ac.currentTime);
+
+        const harmonyGain = ac.createGain();
+        harmonyGain.gain.setValueAtTime(0.15, ac.currentTime);
+
+        const masterGain = ac.createGain();
+        masterGain.gain.setValueAtTime(0.5, ac.currentTime);
+
+        // Connect everything
+        melodyOsc.connect(melodyGain).connect(masterGain);
+        bassOsc.connect(bassGain).connect(masterGain);
+        harmonyOsc.connect(harmonyGain).connect(masterGain);
+        masterGain.connect(ac.destination);
+
+        // Start oscillators
+        melodyOsc.start();
+        bassOsc.start();
+        harmonyOsc.start();
+
+        // Store musical data and references
+        state.bgMusicSource = {
+          melodyOsc, bassOsc, harmonyOsc,
+          melodyGain, bassGain, harmonyGain, masterGain, ac,
+          melodyNotes, bassNotes,
+          melodyIndex: 0,
+          bassIndex: 0,
+          lastNoteTime: ac.currentTime,
+          currentBeatDuration: 60/100 // Start with base BPM
+        };
+        state.bgMusicPlaying = true;
+
+      }catch(_){/* ignore */}
+    }
+
+    function updateBgMusic(){
+      if(!state.bgMusicPlaying || !state.bgMusicSource) return;
+
+      try{
+        const { melodyOsc, bassOsc, harmonyOsc, melodyGain, bassGain, harmonyGain, masterGain, ac,
+                melodyNotes, bassNotes, melodyIndex, bassIndex, lastNoteTime, currentBeatDuration } = state.bgMusicSource;
+
+        const currentTime = ac.currentTime;
+
+        // Calculate intensity based on yards to endzone (closer = more intense)
+        const yardsToEndzone = Math.max(0, 100 - state.ballOnYard);
+        const intensity = Math.max(0, 1 - (yardsToEndzone / 80)); // 0 to 1 scale, higher when closer
+
+        // Dynamic tempo based on intensity
+        const baseBPM = 100;
+        const maxBPM = 200;
+        const bpm = baseBPM + intensity * (maxBPM - baseBPM);
+        const newBeatDuration = 60 / bpm;
+
+        // Update stored beat duration
+        state.bgMusicSource.currentBeatDuration = newBeatDuration;
+
+        // Melody sequence (8 notes that repeat)
+        const melodySequence = [0, 2, 4, 5, 4, 2, 0, -1]; // C major progression
+        const melodyLength = melodySequence.length;
+
+        // Bass sequence (4 notes that repeat)
+        const bassSequence = [0, 2, 0, 3]; // Simple bass line
+        const bassLength = bassSequence.length;
+
+        // Update music based on current field position
+        const currentMelodyIndex = Math.floor(currentTime / currentBeatDuration) % melodyLength;
+        const currentBassIndex = Math.floor(currentTime / (currentBeatDuration * 2)) % bassLength;
+
+        // Update melody
+        const melodyNoteIndex = melodySequence[currentMelodyIndex];
+        const actualNoteIndex = Math.max(0, Math.min(melodyNotes.length - 1, melodyNoteIndex + Math.floor(intensity * 3)));
+        const melodyFreq = melodyNotes[actualNoteIndex];
+
+        melodyOsc.frequency.setValueAtTime(melodyFreq, currentTime);
+        harmonyOsc.frequency.setValueAtTime(melodyFreq * 1.25, currentTime); // Perfect fifth harmony
+
+        // Update bass (half as often as melody)
+        const bassNoteIndex = bassSequence[currentBassIndex];
+        const actualBassIndex = Math.max(0, Math.min(bassNotes.length - 1, bassNoteIndex));
+        const bassFreq = bassNotes[actualBassIndex];
+        bassOsc.frequency.setValueAtTime(bassFreq, currentTime);
+
+        // Store current indices for reference
+        state.bgMusicSource.melodyIndex = currentMelodyIndex;
+        state.bgMusicSource.bassIndex = currentBassIndex;
+
+        // Dynamic volume adjustments
+        const melodyVolume = 0.25 + intensity * 0.1;
+        const bassVolume = 0.3 + intensity * 0.1;
+        const harmonyVolume = 0.15 + intensity * 0.1;
+
+        melodyGain.gain.setValueAtTime(melodyVolume, currentTime);
+        bassGain.gain.setValueAtTime(bassVolume, currentTime);
+        harmonyGain.gain.setValueAtTime(harmonyVolume, currentTime);
+
+        // Overall volume increases with intensity
+        masterGain.gain.setValueAtTime(0.5 + intensity * 0.2, currentTime);
+
+      }catch(_){/* ignore */}
+    }
+
+    function stopBgMusic(){
+      if(!state.bgMusicPlaying || !state.bgMusicSource) return;
+
+      try{
+        const { bassOsc, melodyOsc, accentOsc } = state.bgMusicSource;
+
+        // Fade out
+        const fadeTime = 0.5;
+        const currentTime = state.bgMusicSource.ac.currentTime;
+        state.bgMusicSource.masterGain.gain.exponentialRampToValueAtTime(0.001, currentTime + fadeTime);
+
+        // Stop oscillators after fade
+        setTimeout(() => {
+          try{
+            bassOsc.stop();
+            melodyOsc.stop();
+            accentOsc.stop();
+          }catch(_){/* ignore */}
+        }, fadeTime * 1000);
+
+        state.bgMusicPlaying = false;
+        state.bgMusicSource = null;
+
       }catch(_){/* ignore */}
     }
 

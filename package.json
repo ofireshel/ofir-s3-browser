@@ -1,25 +1,22 @@
 {
-  "name": "ofir-s3-browser-server",
-  "version": "1.0.0",
-  "description": "A realistic static file server for Ofir's S3 Browser application",
-  "main": "server.js",
+  "name": "bgida",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node server.js",
-    "test": "node --test",
-    "health": "curl -s http://localhost:3030/health | jq ."
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
   },
-  "keywords": [
-    "static-server",
-    "file-server",
-    "http-server",
-    "s3-browser"
-  ],
-  "author": "Ofir",
-  "license": "MIT",
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.2.1",
+    "vite": "^5.2.0"
+  },
   "engines": {
     "node": ">=14.0.0"
-  },
-  "devDependencies": {},
-  "dependencies": {}
+  }
 }
