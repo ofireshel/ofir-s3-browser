@@ -1,7 +1,12 @@
-name = "bgida"
+name = "lexiorbit"
 compatibility_date = "2024-01-01"
 pages_build_output_dir = "."
 
 [vars]
+USE_OPENAI = "false"
 
+
+# Bind Workers AI to Pages Functions
+[ai]
+binding = "AI"
 

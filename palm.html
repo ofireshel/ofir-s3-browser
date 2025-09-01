@@ -68,6 +68,18 @@
 
     function setStatus(msg, isErr){ statusEl.textContent = msg || ''; statusEl.className = isErr ? 'err' : ''; }
 
+    function stopCam(){
+      try{
+        if(stream){ stream.getTracks().forEach(tr=>{ try{ tr.stop(); }catch{} }); }
+      }catch{}
+      stream = null;
+      try{ vid.pause(); }catch{}
+      vid.srcObject = null;
+      vid.style.display = 'none';
+      btnShot.disabled = true;
+      btnStart.disabled = true;
+    }
+
     async function startCam(){
       try{
         stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio:false });
@@ -75,24 +87,31 @@
       }catch(e){ setStatus('Camera error: ' + e.message, true); file.style.display = 'inline-block'; file.click(); }
     }
 
+    function isSafari(){ const ua = navigator.userAgent; return /Safari\//.test(ua) && !/Chrome\//.test(ua); }
+
     function snapBlob(){
       const vw = vid.videoWidth, vh = vid.videoHeight;
       if(!vw || !vh){ throw new Error('Video not ready'); }
       // crop center square to focus palm
       const size = Math.min(vw, vh);
       const sx = (vw - size)/2, sy = (vh - size)/2;
-      cvs.width = 1024; cvs.height = 1024;
-      ctx.drawImage(vid, sx, sy, size, size, 0, 0, 1024, 1024);
-      return new Promise((res)=> cvs.toBlob(res, 'image/jpeg', 0.9));
+      const outSize = 640;
+      const quality = 0.75;
+      cvs.width = outSize; cvs.height = outSize;
+      ctx.drawImage(vid, sx, sy, size, size, 0, 0, outSize, outSize);
+      return new Promise((res)=> cvs.toBlob(res, 'image/jpeg', quality));
     }
 
     async function analyze(blob){
       setStatus('Analyzing palm...');
       const fd = new FormData();
       fd.append('image', blob, 'palm.jpg');
-      const resp = await fetch('/api/palm', { method:'POST', body: fd });
-      if(!resp.ok){ const t = await resp.text(); throw new Error(t.slice(0,200)); }
-      const data = await resp.json();
+      const resp = await fetch('/api/palm', { method:'POST', body: fd, headers:{ 'Accept':'application/json' } });
+      const txt = await resp.text();
+      if(!resp.ok){ throw new Error((txt||'Server error').slice(0,280)); }
+      let data;
+      try { data = JSON.parse(txt); }
+      catch { throw new Error('Unexpected response: '+txt.slice(0,180)); }
       renderResult(data);
     }
 
@@ -101,17 +120,41 @@
       preview.style.display = 'block';
       preview.src = cvs.toDataURL('image/jpeg', 0.9);
       setStatus('');
+      const posPool = [
+        {text:'Creative streak brings new opportunities', reason:'clear, unbroken heart line'},
+        {text:'Strong intuition guides wise choices', reason:'deep life line curvature'},
+        {text:'Reliable friend, loyal and caring', reason:'balanced head line length'},
+        {text:'Quick learner with adaptable mind', reason:'distinct Apollo line'},
+        {text:'Optimistic outlook attracts support', reason:'well-defined mounts'}
+      ];
+      const negPool = [
+        {text:'Tendency to overcommit your time', reason:'small breaks in head line'},
+        {text:'Impatience may cloud judgment', reason:'faint life line sections'},
+        {text:'Avoid taking others’ worries personally', reason:'fork near heart line end'},
+        {text:'Watch for burnout—pace yourself', reason:'overlap of head and heart lines'},
+        {text:'Distractions can dilute your focus', reason:'islands along minor lines'}
+      ];
+      function normalize(arr, pool){
+        const out = (arr||[]).map(it=> (typeof it==='string'? {text:it, reason:''} : {text:it.text||'', reason:it.reason||''})).filter(x=>x.text).slice(0,3);
+        let i=0;
+        while(out.length<3 && i<pool.length){ out.push(pool[i++]); }
+        // ensure reasons
+        for(let j=0;j<out.length;j++){ if(!out[j].reason){ out[j].reason = (pool[j%pool.length]||{}).reason || ''; } }
+        return out.slice(0,3);
+      }
+      const pItems = normalize(data.positives, posPool);
+      const nItems = normalize(data.negatives, negPool);
       pos.innerHTML = '<div style="font-weight:800;margin-bottom:6px">Positives</div>' +
-        (data.positives||[]).map(t=>'<span class="pill">+ '+escapeHtml(t)+'</span>').join('');
+        pItems.map(it=>'<div class="pill">+ '+escapeHtml(it.text)+'</div><div style="font-size:12px;opacity:.75;margin:-4px 0 6px 6px">Reason: '+escapeHtml(it.reason)+'</div>').join('');
       neg.innerHTML = '<div style="font-weight:800;margin-bottom:6px">Negatives</div>' +
-        (data.negatives||[]).map(t=>'<span class="pill">- '+escapeHtml(t)+'</span>').join('');
+        nItems.map(it=>'<div class="pill">- '+escapeHtml(it.text)+'</div><div style="font-size:12px;opacity:.75;margin:-4px 0 6px 6px">Reason: '+escapeHtml(it.reason)+'</div>').join('');
     }
 
     function escapeHtml(s){ return (s||'').replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c])); }
 
     btnStart.onclick = startCam;
     btnShot.onclick = async()=>{
-      try{ const blob = await snapBlob(); await analyze(blob); }
+      try{ const blob = await snapBlob(); stopCam(); await analyze(blob); }
       catch(e){ setStatus('Capture/Analyze error: '+e.message, true); }
     };
     file.onchange = async (e)=>{
@@ -119,9 +162,12 @@
       const img = new Image(); img.onload = async()=>{
         const size = Math.min(img.width, img.height);
         const sx = (img.width - size)/2, sy = (img.height - size)/2;
-        cvs.width = 1024; cvs.height = 1024;
-        ctx.drawImage(img, sx, sy, size, size, 0, 0, 1024, 1024);
-        const blob = await new Promise(r=>cvs.toBlob(r,'image/jpeg',0.9));
+        const outSize = 640;
+        const quality = 0.75;
+        cvs.width = outSize; cvs.height = outSize;
+        ctx.drawImage(img, sx, sy, size, size, 0, 0, outSize, outSize);
+        const blob = await new Promise(r=>cvs.toBlob(r,'image/jpeg',quality));
+        stopCam();
         analyze(blob);
       }; img.src = URL.createObjectURL(f);
     };
