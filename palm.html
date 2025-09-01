@@ -112,6 +112,11 @@
       let data;
       try { data = JSON.parse(txt); }
       catch { throw new Error('Unexpected response: '+txt.slice(0,180)); }
+      if (data.notPalm) {
+        results.style.display = 'none';
+        setStatus(`This is an image of ${data.notPalm.object}. Please take a clear picture of the palm of your hand for the analysis.`, true);
+        return;
+      }
       renderResult(data);
     }
 
@@ -153,7 +158,20 @@
     function escapeHtml(s){ return (s||'').replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c])); }
 
     btnStart.onclick = startCam;
+    function usedToday(){
+      try{
+        const key = 'palm_reader_last_play_utc';
+        const prev = localStorage.getItem(key);
+        const now = new Date();
+        const today = now.toISOString().slice(0,10);
+        if (prev === today) return true;
+        localStorage.setItem(key, today);
+        return false;
+      }catch{ return false; }
+    }
+
     btnShot.onclick = async()=>{
+      if (usedToday()) { setStatus('Daily limit reached. Please try again tomorrow.', true); return; }
       try{ const blob = await snapBlob(); stopCam(); await analyze(blob); }
       catch(e){ setStatus('Capture/Analyze error: '+e.message, true); }
     };

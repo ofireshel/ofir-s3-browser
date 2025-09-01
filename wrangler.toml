@@ -3,7 +3,10 @@ compatibility_date = "2024-01-01"
 pages_build_output_dir = "."
 
 [vars]
-USE_OPENAI = "false"
+USE_OPENAI = "true"
+# Optional: pin a specific model available in your catalog (free vision model)
+VISION_MODEL_ID = "@cf/llava/llava-1.5-7b-hf"
+PREFER_REST = "true"
 
 
 # Bind Workers AI to Pages Functions

@@ -11,42 +11,62 @@ export async function onRequestPost({ request, env }) {
       return new Response(JSON.stringify({ error: 'image field missing' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
     }
 
-    const prompt = `You are a playful palmistry assistant. Analyze the palm lines in this photo and output strict JSON with this exact schema:
+    const prompt = `You are a playful palmistry assistant. Analyze the image and return STRICT JSON ONLY with this schema:
 {
-  "positives": [ { "text": "<short positive>", "reason": "<very short visual reason from the image>" }, ...3 items total ],
-  "negatives": [ { "text": "<short caution>", "reason": "<very short visual reason from the image>" }, ...3 items total ]
+  "isPalm": true | false,
+  "object": "<very short label for the main visible object>",
+  "positives": [ { "text": "<short positive>", "reason": "<very short visual reason from the palm>" } ],
+  "negatives": [ { "text": "<short caution>", "reason": "<very short visual reason from the palm>" } ]
 }
 Rules:
-- Each text and reason under 120 characters.
-- Reasons must cite visible features (e.g., depth/length/shape/clarity of life/heart/head lines, mounts, breaks, forks).
+- If no palm/hand is clearly visible, set isPalm=false and leave positives and negatives as empty arrays.
+- If a palm/hand is clearly visible, set isPalm=true and provide exactly 3 positives and 3 negatives with reasons based on palm features (life/heart/head lines, mounts, breaks, forks). Keep each under 120 characters.
 - No medical/legal claims; keep playful and general.
 - Return ONLY the JSON object, nothing else.`;
 
-    // 1) Try Cloudflare Workers AI (no API key required)
+    // 1) Try Cloudflare Workers AI via binding unless preferring REST
     let text = '';
+    let aiBindingPresent = false;
+    let aiBindingError = '';
+    const preferRest = (env.PREFER_REST === 'true');
+    const aiBindingTried = [];
     try {
-      if (env.AI && typeof env.AI.run === 'function') {
+      if (!preferRest && env.AI && typeof env.AI.run === 'function') {
+        aiBindingPresent = true;
         const buf = new Uint8Array(await image.arrayBuffer());
-        let visionResult;
-        try {
-          // Prefer Meta Llama 3.2 Vision if available
-          visionResult = await env.AI.run('@cf/meta/llama-3.2-11b-vision-instruct', {
-            messages: [
-              { role: 'user', content: [ { type: 'text', text: prompt }, { type: 'image', image: buf } ] }
-            ]
-          });
-        } catch (e1) {
-          // Fallback to Qwen2-VL
-          visionResult = await env.AI.run('@cf/qwen/qwen2-vl-7b-instruct', {
-            messages: [
-              { role: 'user', content: [ { type: 'text', text: prompt }, { type: 'image', image: buf } ] }
-            ]
-          });
+        const preferredId = (env.VISION_MODEL_ID || '').trim();
+        const candidates = [
+          ...(preferredId ? [{ id: preferredId, kind: preferredId.includes('llava') ? 'llava' : 'chat' }] : []),
+          { id: '@cf/llama/llama-3.2-11b-vision-instruct', kind: 'chat' },
+          { id: '@cf/meta/llama-3.2-11b-vision-instruct', kind: 'chat' },
+          { id: '@cf/microsoft/phi-3.5-vision-instruct', kind: 'chat' },
+          { id: '@cf/llava/llava-1.5-7b-hf', kind: 'llava' }
+        ];
+        let lastErr = '';
+        for (const model of candidates) {
+          try {
+            let visionResult;
+            if (model.kind === 'chat') {
+              visionResult = await env.AI.run(model.id, {
+                messages: [
+                  { role: 'user', content: [ { type: 'input_text', text: prompt }, { type: 'input_image', image: buf } ] }
+                ]
+              });
+            } else {
+              visionResult = await env.AI.run(model.id, { prompt, image: buf });
+            }
+            text = (visionResult && (visionResult.response || visionResult.output_text || visionResult.text || '')) + '';
+            if (text) { aiBindingTried.push({ model: model.id, ok: true }); lastErr = ''; break; }
+          } catch (e1) {
+            lastErr = (e1 && e1.message) ? e1.message : (e1+'');
+            aiBindingTried.push({ model: model.id, ok: false, error: lastErr });
+            continue;
+          }
         }
-        text = (visionResult && (visionResult.response || visionResult.output_text || visionResult.text || '')) + '';
+        if (!text && lastErr) aiBindingError = lastErr;
       }
     } catch (e) {
-      // Continue to OpenAI fallback if configured
+      aiBindingError = (e && e.message) ? e.message : (e+'');
     }
 
     // 1b) If no binding, try Workers AI REST with CF credentials if provided
@@ -63,10 +83,10 @@ Rules:
         return btoa(binary);
       }
       const b64 = abToBase64(imgBuf2);
-      async function runCfModel(modelId){
+      async function runCfChatModel(modelId){
         const url = `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/ai/run/${modelId}`;
         const body = {
-          messages:[{ role:'user', content:[ { type:'text', text: prompt }, { type:'image', image: b64 } ] }]
+          messages:[{ role:'user', content:[ { type:'input_text', text: prompt }, { type:'input_image', image: b64 } ] }]
         };
         const r = await fetch(url, {
           method:'POST',
@@ -78,10 +98,36 @@ Rules:
         const result = jd.result || jd;
         return (result.response || result.output_text || result.text || '').toString();
       }
-      try {
-        text = await runCfModel('@cf/meta/llama-3.2-11b-vision-instruct');
-      } catch(_) {
-        try { text = await runCfModel('@cf/qwen/qwen2-vl-7b-instruct'); } catch(_) {}
+      async function runCfLlava(){
+        const url = `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/ai/run/@cf/llava/llava-1.5-7b-hf`;
+        const body = { prompt, image: b64 };
+        const r = await fetch(url, {
+          method:'POST',
+          headers:{ 'Authorization': `Bearer ${env.CF_API_TOKEN}`, 'Content-Type':'application/json', 'Accept':'application/json' },
+          body: JSON.stringify(body)
+        });
+        if (!r.ok) throw new Error(await r.text());
+        const jd = await r.json();
+        const result = jd.result || jd;
+        return (result.response || result.output_text || result.text || '').toString();
+      }
+      const preferredId = (env.VISION_MODEL_ID || '').trim();
+      const restCandidates = [
+        ...(preferredId ? [{ id: preferredId, kind: preferredId.includes('llava') ? 'llava' : 'chat' }] : []),
+        { id: '@cf/meta/llama-3.2-11b-vision-instruct', kind: 'chat' },
+        { id: '@cf/llama/llama-3.2-11b-vision-instruct', kind: 'chat' },
+        { id: '@cf/microsoft/phi-3.5-vision-instruct', kind: 'chat' },
+        { id: '@cf/llava/llava-1.5-7b-hf', kind: 'llava' }
+      ];
+      for (const model of restCandidates) {
+        try {
+          if (model.kind === 'chat') {
+            text = await runCfChatModel(model.id);
+          } else {
+            text = await runCfLlava();
+          }
+          if (text) break;
+        } catch (_) { continue; }
       }
     }
 
@@ -132,6 +178,8 @@ Rules:
       text = (data.choices?.[0]?.message?.content || '').trim();
     }
     let positives = [], negatives = [];
+    let isPalm = undefined;
+    let mainObject = '';
     try {
       // Attempt to parse strict JSON
       let raw = '';
@@ -143,6 +191,8 @@ Rules:
       } else { raw = match[0]; }
       if (raw) {
         const obj = JSON.parse(raw);
+        if (typeof obj.isPalm === 'boolean') isPalm = obj.isPalm;
+        if (typeof obj.object === 'string') mainObject = obj.object.slice(0, 120);
         const norm = (arr)=> (Array.isArray(arr)? arr : []).slice(0,3).map(it => {
           if (typeof it === 'string') return { text: it, reason: '' };
           return { text: (it.text||'').toString().slice(0,180), reason: (it.reason||'').toString().slice(0,180) };
@@ -151,6 +201,14 @@ Rules:
         negatives = norm(obj.negatives);
       }
     } catch {}
+    if (isPalm === false) {
+      const objectLabel = mainObject || 'an object';
+      const notPalm = {
+        object: objectLabel,
+        message: `This is an image of ${objectLabel}. Please take a clear picture of the palm of your hand for the analysis.`
+      };
+      return new Response(JSON.stringify({ notPalm }), { headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' } });
+    }
     if (positives.length === 0 || negatives.length === 0) {
       // Fallback parse: split lines, pair as text with blank reason
       const lines = text.split(/\n+/).map(s=>s.replace(/^[-+*•\s]+/,'').trim()).filter(Boolean);
@@ -205,8 +263,19 @@ Rules:
     positives = fillIfNeeded(positives, posPool, posReasons, imgHashSeed ^ 0x9e3779b9);
     negatives = fillIfNeeded(negatives, negPool, negReasons, imgHashSeed ^ 0x85ebca6b);
     if (!text && !allowOpenAI) {
-      // Workers AI not available and OpenAI fallback disabled: instruct configuration
-      return new Response(JSON.stringify({ error: 'Workers AI not configured', message: 'Bind AI in wrangler.toml or set CF_ACCOUNT_ID/CF_API_TOKEN for REST' }), { status: 503, headers: { 'Content-Type': 'application/json; charset=utf-8' } });
+      // Workers AI not available and OpenAI fallback disabled: include diagnostics
+      const hasRestCreds = !!(env.CF_ACCOUNT_ID && env.CF_API_TOKEN);
+      return new Response(JSON.stringify({
+        error: 'Workers AI not configured',
+        message: 'Bind AI in wrangler.toml or set CF_ACCOUNT_ID/CF_API_TOKEN for REST',
+        diagnostics: {
+          aiBindingPresent,
+          aiBindingError,
+          hasRestCreds,
+          bindingType: typeof env.AI,
+          aiBindingTried
+        }
+      }), { status: 503, headers: { 'Content-Type': 'application/json; charset=utf-8' } });
     }
     return new Response(JSON.stringify({ positives, negatives }), { headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' } });
   } catch (e) {
