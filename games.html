@@ -40,8 +40,8 @@
 
     .panel{ position:relative; border:8px solid var(--ink); border-radius:14px; overflow:hidden; aspect-ratio: 1.15 / 1; display:flex; align-items:center; justify-content:center; }
     .panel-inner{ position:relative; z-index:2; display:grid; gap:10px; text-align:center; padding: clamp(14px, 3.4vw, 26px); }
-    .title{ margin:0; font-size: clamp(20px, 3vw, 34px); font-weight: 900; letter-spacing: .02em; text-transform: uppercase; text-shadow: 2px 2px 0 var(--ink); color:#fff; }
-    .subtitle{ margin:0; font-size: clamp(12px, 1.6vw, 16px); font-weight: 800; color:#fff; opacity:.9; text-shadow: 2px 2px 0 var(--ink); }
+    .title{ margin:0; font-size: clamp(20px, 3vw, 34px); font-weight: 900; letter-spacing: .02em; text-transform: uppercase; text-shadow: 3px 3px 0 var(--ink), 6px 6px 0 var(--ink); color:#fff; }
+    .subtitle{ margin:0; font-size: clamp(12px, 1.6vw, 16px); font-weight: 800; color:#fff; opacity:.9; text-shadow: 2px 2px 0 var(--ink), 4px 4px 0 var(--ink); }
     .row{ display:flex; gap:10px; justify-content:center; flex-wrap:wrap; }
     .cta{ appearance:none; border:none; cursor:pointer; font-weight:900; letter-spacing:.02em; padding:10px 14px; border-radius:10px; border:4px solid var(--ink); background:#fff; color:var(--ink); text-decoration:none; display:inline-flex; align-items:center; gap:8px; box-shadow: 6px 6px 0 var(--ink); transition: transform .12s ease; }
     .cta:hover{ transform: translate(-2px, -2px); box-shadow: 8px 8px 0 var(--ink); }
@@ -73,7 +73,6 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 </head>
 <body>
-  <a id="amzn-link" href="https://amzn.to/45OF5ab" target="_blank" rel="noopener" style="position:fixed;right:16px;top:12px;display:inline-block;padding:10px 14px;background:#0e1629;border:1px solid #1f2a44;border-radius:8px;color:#93c5fd;text-decoration:none;z-index:9999">Amazon</a>
   <div class="wrap">
     <main>
       <div class="warhol-grid">
@@ -104,7 +103,7 @@
           <span class="dots"></span>
           <div class="panel-inner">
             <h2 class="title">Fruity Football</h2>
-            <p class="subtitle">Win A 2026 Super Bowl Ticket</p>
+            <p class="subtitle">Can you reach the top?</p>
             <div class="row">
               <a class="cta" href="football.html" aria-label="Play Arcade Football">▶ Play</a>
             </div>
@@ -122,13 +121,13 @@
           </div>
         </section>
 
-        <section class="panel p2" aria-label="Moral Dilemmas">
+        <section class="panel p2" aria-label="Moral Detective">
           <span class="dots"></span>
           <div class="panel-inner">
-            <h2 class="title">Moral Dilemmas</h2>
+            <h2 class="title">Moral Detective</h2>
             <p class="subtitle">What Would You Do?</p>
             <div class="row">
-              <a class="cta" href="moral.html" aria-label="Play Moral Dilemmas">▶ Play</a>
+              <a class="cta" href="moral.html" aria-label="Play Moral Detective">▶ Play</a>
             </div>
           </div>
         </section>

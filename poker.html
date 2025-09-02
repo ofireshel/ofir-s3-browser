@@ -762,6 +762,14 @@ function positions(){
       }
       __lastResetAt = nowTs;
       state.handId++; state.board=[]; state.pot=0; state.street='preflop'; state.curBet=0; state.betThisRound=[0,0]; state.players.forEach(p=>{p.hole=[]; p.folded=false;}); state.lastAggressor=-1; state.message='';
+      // For the very first hand in single-player, show a brief initializing overlay
+      try{
+        if(!isMultiplayer && state.handId===1){
+          const box=document.querySelector('#connectingOverlay .box');
+          if(box){ box.innerHTML='Initializing…'; }
+          showConnectingOverlay();
+        }
+      }catch{}
       state.dealer = 1 - state.dealer;
       state.deck = newDeck(); shuffle(state.deck);
       // Force exact 1/2 blinds every hand
@@ -972,6 +980,7 @@ function positions(){
         if(i>=seq.length){
           // Finish dealing hole cards; remain in preflop for betting
           state.animating=false; state.glAnimating=false;
+          try{ hideConnectingOverlay(); }catch{}
           updateControls();
           draw();
           if(!maybeAutoRunout()) maybeAIMove();
@@ -989,6 +998,7 @@ function positions(){
             if(s.who==='human'){ state.revealed.human = Math.max(state.revealed.human, s.idx+1); }
             else if(s.who==='ai'){ state.revealed.ai = Math.max(state.revealed.ai, s.idx+1); }
             else { state.revealed.board = Math.max(state.revealed.board, s.idx+1); }
+            try{ hideConnectingOverlay(); }catch{}
             progressed=true; setTimeout(()=>{ state.glAnimating=false; draw(); setTimeout(step, 10); }, 0);
           });
         } else {
@@ -996,6 +1006,7 @@ function positions(){
             if(s.who==='human'){ state.revealed.human = Math.max(state.revealed.human, s.idx+1); }
             else if(s.who==='ai'){ state.revealed.ai = Math.max(state.revealed.ai, s.idx+1); }
             else { state.revealed.board = Math.max(state.revealed.board, s.idx+1); }
+            try{ hideConnectingOverlay(); }catch{}
             progressed=true; draw(); setTimeout(step, 10);
           }};
           requestAnimationFrame(draw);
@@ -1006,7 +1017,7 @@ function positions(){
       setTimeout(()=>{
         if(!progressed){
           state.revealed.human=2; state.revealed.ai=2; // show both hole card backs
-          state.animating=false; draw(); updateControls(); if(!maybeAutoRunout()) maybeAIMove();
+          state.animating=false; draw(); updateControls(); try{ hideConnectingOverlay(); }catch{} if(!maybeAutoRunout()) maybeAIMove();
         }
       }, 1200);
     }
