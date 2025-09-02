@@ -1848,6 +1848,18 @@ function positions(){
         else { __firstStarted=true; resetHand(); }
       }
       startFirstHandWhenReady(0);
+      // Final safety: if still no reveal shortly after load, force-start deal or reset
+      setTimeout(()=>{
+        try{
+          if(state && state.street==='preflop' && state.revealed.human<1){
+            if(state.players && state.players[0] && state.players[0].hole && state.players[0].hole.length>=1){
+              startDealAnimation();
+            } else {
+              resetHand();
+            }
+          }
+        }catch{}
+      }, 2200);
     }
     // Expose debug helpers for console inspection
     try{
