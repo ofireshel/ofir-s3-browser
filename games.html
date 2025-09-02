@@ -12,7 +12,7 @@
       --c3:#ffe100; /* yellow */
       --c4:#00d08a; /* pop green */
     }
-    html,body{ height:100%; margin:0; font-family:'Segoe UI', Arial, sans-serif; background:var(--paper); color:var(--ink); }
+    html,body{ height:100%; margin:0; font-family:'Segoe UI', Arial, sans-serif; background:var(--paper); color:var(--ink); overflow-x:hidden; touch-action: pan-y; overscroll-behavior-x: none; }
     .wrap{ min-height:100%; display:grid; grid-template-rows: 1fr; }
     /* Faded Warhol-style background image */
     body::before{ content:""; position:fixed; inset:0; z-index:0; pointer-events:none;
@@ -32,16 +32,16 @@
     main{ display:grid; place-items:center; padding: clamp(12px, 4vw, 32px); }
 
     /* Warhol grid: three bold panels */
-    .warhol-grid{ width:min(1100px, 96vw); display:grid; grid-template-columns: repeat(3, 1fr); gap: clamp(10px, 2.4vw, 20px); }
+    .warhol-grid{ width:min(1210px, 100vw); display:grid; grid-template-columns: repeat(3, 1fr); gap: clamp(10px, 2.4vw, 20px); }
     @media(max-width:860px){
       .warhol-grid{ grid-template-columns: 1fr; justify-items: center; }
-      .panel{ width: 60%; border-width: 6px; }
+      .panel{ width: 66%; border-width: 6px; }
     }
 
     .panel{ position:relative; border:8px solid var(--ink); border-radius:14px; overflow:hidden; aspect-ratio: 1.15 / 1; display:flex; align-items:center; justify-content:center; }
     .panel-inner{ position:relative; z-index:2; display:grid; gap:10px; text-align:center; padding: clamp(14px, 3.4vw, 26px); }
-    .title{ margin:0; font-size: clamp(20px, 3vw, 34px); font-weight: 900; letter-spacing: .02em; text-transform: uppercase; text-shadow: 3px 3px 0 var(--ink), 6px 6px 0 var(--ink); color:#fff; }
-    .subtitle{ margin:0; font-size: clamp(12px, 1.6vw, 16px); font-weight: 800; color:#fff; opacity:.9; text-shadow: 2px 2px 0 var(--ink), 4px 4px 0 var(--ink); }
+    .title{ margin:0; font-size: clamp(24px, 3.6vw, 41px); font-weight: 900; letter-spacing: .02em; text-transform: uppercase; text-shadow: 3px 3px 0 var(--ink), 6px 6px 0 var(--ink); color:#fff; }
+    .subtitle{ margin:0; font-size: clamp(14px, 1.9vw, 19px); font-weight: 800; color:#fff; opacity:.9; text-shadow: 1.5px 1.5px 0 var(--ink), 3px 3px 0 var(--ink); }
     .row{ display:flex; gap:10px; justify-content:center; flex-wrap:wrap; }
     .cta{ appearance:none; border:none; cursor:pointer; font-weight:900; letter-spacing:.02em; padding:10px 14px; border-radius:10px; border:4px solid var(--ink); background:#fff; color:var(--ink); text-decoration:none; display:inline-flex; align-items:center; gap:8px; box-shadow: 6px 6px 0 var(--ink); transition: transform .12s ease; }
     .cta:hover{ transform: translate(-2px, -2px); box-shadow: 8px 8px 0 var(--ink); }
@@ -59,7 +59,7 @@
     .p2 .cta{ background: var(--c4); }
     .p3 .cta{ background: var(--c2); }
     @media(max-width:860px){
-      body{ padding-top: 64px; }
+      body{ padding-top: 12px; }
     }
   </style>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%231e293b'/%3E%3Cpath d='M8 16h16' stroke='%2360a5fa' stroke-width='3'/%3E%3Cpath d='M16 8v16' stroke='%23a78bfa' stroke-width='3'/%3E%3C/svg%3E"/>
@@ -76,7 +76,17 @@
   <div class="wrap">
     <main>
       <div class="warhol-grid">
-        <section class="panel p1" aria-label="Heads-Up Poker">
+        <section class="panel p1" aria-label="AI Palm Reader">
+          <span class="dots"></span>
+          <div class="panel-inner">
+            <h2 class="title">AI Palm Reader</h2>
+            <p class="subtitle">Scan Your Hand, Get a Reading</p>
+            <div class="row">
+              <a class="cta" href="palm.html" aria-label="Start AI Palm Reader">▶ Start</a>
+            </div>
+          </div>
+        </section>
+        <section class="panel p3" aria-label="Heads-Up Poker">
           <span class="dots"></span>
           <div class="panel-inner">
             <h2 class="title">Heads‑Up Poker</h2>
@@ -99,7 +109,7 @@
           </div>
         </section>
 
-        <section class="panel p3" aria-label="Fruity Football">
+        <section class="panel p1" aria-label="Fruity Football">
           <span class="dots"></span>
           <div class="panel-inner">
             <h2 class="title">Fruity Football</h2>
@@ -110,16 +120,7 @@
           </div>
         </section>
         
-        <section class="panel p1" aria-label="AI Palm Reader">
-          <span class="dots"></span>
-          <div class="panel-inner">
-            <h2 class="title">AI Palm Reader</h2>
-            <p class="subtitle">Scan Your Hand, Get a Reading</p>
-            <div class="row">
-              <a class="cta" href="palm.html" aria-label="Start AI Palm Reader">▶ Start</a>
-            </div>
-          </div>
-        </section>
+        
 
         <section class="panel p2" aria-label="Moral Detective">
           <span class="dots"></span>
