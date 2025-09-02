@@ -1,0 +1,185 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+  <title>Moral Detective</title>
+  <style>
+    :root{
+      --bg:#0b1220; --bg2:#0f172a; --panel:#111827; --panel-border:#334155; --text:#e5e7eb; --muted:#94a3b8;
+      --accent:#22d3ee; --accent-2:#a78bfa; --accent-3:#f59e0b;
+    }
+    html,body{ height:100%; margin:0; background: radial-gradient(1200px 800px at 15% 10%, #0e1a2f, transparent),
+      radial-gradient(1000px 700px at 85% 90%, #141a31, transparent), var(--bg); color:var(--text); font-family:'Segoe UI', Arial, sans-serif; }
+    .wrap{ min-height:100%; display:grid; grid-template-rows:auto 1fr auto; }
+    header{ padding:14px; border-bottom:4px solid var(--panel-border); background:linear-gradient(180deg, #0f172a, #0b1220); display:flex; justify-content:space-between; align-items:center; position:relative; }
+    .dot{ position:absolute; left:12px; top:48px; width:14px; height:14px; border-radius:50%; border:2px solid #0b1220; box-shadow:0 0 0 2px #0b122055; }
+    header .title{ font-weight:900; letter-spacing:.02em; color:var(--text); }
+    main{ padding:20px; display:grid; gap:16px; }
+    .card{ border:2px solid var(--panel-border); border-radius:14px; background:linear-gradient(180deg, var(--panel), #0f1828); box-shadow:0 10px 30px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.04); padding:18px; display:grid; gap:12px; max-width:980px; margin: 0 auto; }
+    .story{ font-size:18px; line-height:1.6; color:var(--text); background:rgba(15, 23, 42, 0.7); border:1px solid #1f2937; border-radius:12px; padding:14px 16px; min-height:140px; }
+    .row{ display:flex; gap:12px; flex-wrap:wrap; }
+    .btn{ appearance:none; border:2px solid #0e7490; background:linear-gradient(180deg, #22d3ee, #06b6d4); color:#0b1220; padding:10px 16px; border-radius:12px; font-weight:900; font-size:18px; box-shadow:0 6px 0 #0e7490; cursor:pointer; transition: transform .05s ease, box-shadow .05s ease; }
+    .btn:hover{ transform: translateY(-1px); box-shadow:0 7px 0 #0e7490; }
+    .btn:active{ transform: translateY(1px); box-shadow:0 4px 0 #0e7490; }
+    .btn:disabled{ opacity:.6; cursor:not-allowed; }
+    .meta{ font-size:13px; color:var(--muted); }
+    .err{ color:#fca5a5; font-weight:700; }
+    .guess{ display:grid; gap:10px; }
+    input[type="text"]{ padding:14px 16px; border:2px solid #1f2937; background:#0b1220; color:var(--text); border-radius:12px; font-size:18px; width:100%; }
+    .recap{ background:rgba(2,6,23,0.5); border:1px dashed #334155; border-radius:12px; padding:12px 14px; }
+    .choice-pill{ display:inline-block; margin:4px 6px 0 0; padding:6px 10px; border-radius:999px; border:2px solid #334155; background:#0b1220; color:var(--text); font-weight:700; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="title">Moral Detective</div>
+      <span id="modelDot" class="dot" title="Model indicator"></span>
+      <a href="games.html" style="text-decoration:none; font-weight:900;">Back</a>
+    </header>
+    <main>
+      <div class="card">
+        <div id="status"></div>
+        <div id="story" class="story"></div>
+        <div class="row" id="choices" style="display:none"></div>
+        <div class="meta"><span id="step"></span></div>
+      </div>
+
+      <div class="card" id="guessCard" style="display:none">
+        <div style="font-weight:900">Your Theory</div>
+        <div class="guess">
+          <div class="story" style="display:flex; align-items:center"><input id="guessInput" type="text" placeholder="What’s the mystery’s solution?" style="width:100%; border:none; background:transparent; color:inherit; font: inherit; outline:none;"/></div>
+          <button class="btn" id="btnGuess">Submit Guess</button>
+        </div>
+      </div>
+
+      <div class="card" id="resultCard" style="display:none">
+        <div style="font-weight:900">Resolution</div>
+        <div id="resolution" class="story"></div>
+        <div style="font-weight:900">Your Moral Profile</div>
+        <div id="analysis"></div>
+        <div style="font-weight:900">Gentle Reflections</div>
+        <div id="critiques" class="recap"></div>
+        <div style="font-weight:900">Your Path</div>
+        <div id="recap" class="recap"></div>
+      </div>
+    </main>
+    <footer></footer>
+  </div>
+
+  <script>
+  (function(){
+    const statusEl = document.getElementById('status');
+    const storyEl = document.getElementById('story');
+    const choicesEl = document.getElementById('choices');
+    const stepEl = document.getElementById('step');
+    const guessCard = document.getElementById('guessCard');
+    const resultCard = document.getElementById('resultCard');
+    const resolutionEl = document.getElementById('resolution');
+    const analysisEl = document.getElementById('analysis');
+    const recapEl = document.getElementById('recap');
+    const guessInput = document.getElementById('guessInput');
+    const btnGuess = document.getElementById('btnGuess');
+
+    let totalSteps = 9;
+    let curStep = 0;
+    let requireGuess = false;
+    const history = [];
+    const seed = Math.random().toString(36).slice(2);
+
+    function setStatus(msg, err){ statusEl.textContent = msg||''; statusEl.className = err? 'err':''; }
+
+    async function callApi(payload){
+      const resp = await fetch('/api/moral', { method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(payload) });
+      const txt = await resp.text();
+      if (!resp.ok) throw new Error((txt||'Server error').slice(0,300));
+      let jd; try { jd = JSON.parse(txt); } catch { throw new Error('Bad JSON'); }
+      return jd;
+    }
+
+    function renderChoices(list){
+      choicesEl.innerHTML = '';
+      choicesEl.style.display = 'flex';
+      list.forEach(ch => {
+        const b = document.createElement('button');
+        b.className = 'btn';
+        b.textContent = ch.text || ch.label;
+        b.onclick = ()=> pick(ch.label||'A', ch.text||'');
+        choicesEl.appendChild(b);
+      });
+    }
+
+    async function start(){
+      try{
+        setStatus('');
+        const jd = await callApi({ mode:'start', seed, totalSteps });
+        totalSteps = jd.totalSteps || totalSteps;
+        curStep = 1;
+        storyEl.textContent = jd.chunk || '';
+        renderChoices(jd.choices||[]);
+        stepEl.textContent = `Step ${curStep} / ${totalSteps}`;
+        setStatus('');
+        setDot(jd.modelUsed);
+        history.push({ step: curStep, chunk: jd.chunk||'', choices: jd.choices||[] });
+      }catch(e){ setStatus('Error: '+e.message, true); }
+    }
+
+    async function pick(label, text){
+      try{
+        setStatus('Continuing...');
+        choicesEl.style.display = 'none';
+        // record selection
+        if (history.length>0 && history[history.length-1].step === curStep){ history[history.length-1].selected = { label, text }; }
+        else { history.push({ step: curStep, selected: { label, text } }); }
+        if (curStep >= totalSteps){
+          requireGuess = true; guessCard.style.display = 'block'; setStatus('Make your guess.'); return;
+        }
+        const jd = await callApi({ mode:'step', seed, totalSteps, step: curStep+1, history });
+        curStep = (jd.step || (curStep+1));
+        storyEl.textContent = jd.chunk || '';
+        renderChoices(jd.choices||[]);
+        stepEl.textContent = `Step ${curStep} / ${totalSteps}`;
+        setStatus('');
+        setDot(jd.modelUsed);
+        history.push({ step: curStep, chunk: jd.chunk||'', choices: jd.choices||[] });
+        // Guess input only appears after the last choice has been taken
+      }catch(e){ setStatus('Error: '+e.message, true); }
+    }
+
+    async function submitGuess(){
+      try{
+        const guess = (guessInput.value||'').trim();
+        if (!guess) { setStatus('Enter your theory first.', true); return; }
+        setStatus('Judging your theory...');
+        const jd = await callApi({ mode:'guess', seed, totalSteps, history, guess });
+        resultCard.style.display = 'block';
+        resolutionEl.textContent = jd.resolution || '';
+        analysisEl.textContent = jd.analysis || '';
+        const crit = Array.isArray(jd.critiques) ? jd.critiques : [];
+        document.getElementById('critiques').innerHTML = crit.slice(0,2).map(c=>`<div>• ${escapeHtml(c.text||c)}</div>`).join('');
+        const recap = Array.isArray(jd.recap) ? jd.recap : [];
+        recapEl.innerHTML = recap.map(r => `<div><span class="choice-pill">${r.step}. ${r.label||''}</span> ${escapeHtml(r.choice||'')} — <em>${escapeHtml(r.trait||'')}</em>. ${escapeHtml(r.insight||'')}</div>`).join('');
+        setStatus('');
+      }catch(e){ setStatus('Error: '+e.message, true); }
+    }
+
+    function escapeHtml(s){ return (s||'').replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c])); }
+
+    function setDot(model){
+      try{
+        const el = document.getElementById('modelDot');
+        const isGpt5 = /gpt-5/i.test(model||'');
+        el.style.background = isGpt5 ? '#16a34a' : '#dc2626';
+        el.title = isGpt5 ? 'GPT-5 mini' : 'Fallback model';
+      }catch{}
+    }
+
+    btnGuess.onclick = submitGuess;
+    start();
+  })();
+  </script>
+</body>
+</html>
+
+
