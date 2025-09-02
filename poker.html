@@ -791,8 +791,23 @@ function positions(){
       state.animating = true;
       updateControls();
       state.animating=true; draw();
-      // Ensure canvas has dimensions before animation
-      if(canvas.width<10 || canvas.height<10){ setTimeout(startDealAnimation, 50); } else { startDealAnimation(); }
+      // Ensure canvas has dimensions before animation; retry briefly then hard-fallback
+      function kickDealWhenReady(attempt){
+        const tries = attempt||0;
+        if(canvas.width>=10 && canvas.height>=10){
+          try { startDealAnimation(); return; } catch(e){ /* fall through to retry */ }
+        }
+        if(tries < 20){ setTimeout(()=>kickDealWhenReady(tries+1), 60); }
+        else {
+          // Hard fallback: reveal hole cards so first hand becomes visible even if animation failed
+          try {
+            state.revealed.human = 2; state.revealed.ai = 2;
+            state.animating=false; draw(); updateControls();
+            if(!maybeAutoRunout()) maybeAIMove();
+          } catch {}
+        }
+      }
+      kickDealWhenReady(0);
     }
     function postBlind(pid, amt){ const p=state.players[pid]; const pay=Math.min(amt, p.stack); p.stack-=pay; state.betThisRound[pid]+=pay; state.pot+=pay; state.curBet=Math.max(state.curBet, state.betThisRound[pid]); }
     function minRaise(){ const highest=Math.max(state.betThisRound[0], state.betThisRound[1]); const other=Math.min(state.betThisRound[0], state.betThisRound[1]); const lastRaise=Math.max(BIG_BLIND, highest-other); return highest + lastRaise; }
