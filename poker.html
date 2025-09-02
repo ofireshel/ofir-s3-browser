@@ -788,9 +788,10 @@ function positions(){
       state.toAct = state.dealer;
       state.overlayShown = false;
       state.handAdvanced = false;
-      state.animating = true;
+      // Enable rendering immediately so blinds and layout are visible while we wait to deal
+      state.animating = false;
       updateControls();
-      state.animating=true; draw();
+      draw();
       // Ensure canvas has dimensions before animation; retry briefly then hard-fallback
       function kickDealWhenReady(attempt){
         const tries = attempt||0;
@@ -1281,7 +1282,7 @@ function positions(){
       betRaiseBtn.textContent = state.curBet>0? 'Raise' : 'Bet';
 
       // In single-player, if it's AI's turn now and we're not animating, act immediately
-      if (!isMultiplayer && state.toAct===1 && !state.animating && state.street!=='showdown') {
+      if (!isMultiplayer && state.toAct===1 && !state.animating && state.street!=='showdown' && state.revealed.human>=1) {
         try { aiAct(); } catch { scheduleAI(0); }
       }
     }
@@ -1838,7 +1839,15 @@ function positions(){
     resize();
     // Start a hand only in single-player here. In multiplayer, the game master will start it after both players are ready
     if (!isMultiplayer) {
-      resetHand();
+      let __firstStarted = false;
+      function startFirstHandWhenReady(attempt){
+        if(__firstStarted) return;
+        const tries = attempt||0;
+        if(canvas && canvas.width>=10 && canvas.height>=10){ __firstStarted=true; resetHand(); return; }
+        if(tries<30){ setTimeout(()=>startFirstHandWhenReady(tries+1), 60); }
+        else { __firstStarted=true; resetHand(); }
+      }
+      startFirstHandWhenReady(0);
     }
     // Expose debug helpers for console inspection
     try{
