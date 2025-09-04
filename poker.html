@@ -762,14 +762,6 @@ function positions(){
       }
       __lastResetAt = nowTs;
       state.handId++; state.board=[]; state.pot=0; state.street='preflop'; state.curBet=0; state.betThisRound=[0,0]; state.players.forEach(p=>{p.hole=[]; p.folded=false;}); state.lastAggressor=-1; state.message='';
-      // For the very first hand in single-player, show a brief initializing overlay
-      try{
-        if(!isMultiplayer && state.handId===1){
-          const box=document.querySelector('#connectingOverlay .box');
-          if(box){ box.innerHTML='Initializing…'; }
-          showConnectingOverlay();
-        }
-      }catch{}
       state.dealer = 1 - state.dealer;
       state.deck = newDeck(); shuffle(state.deck);
       // Force exact 1/2 blinds every hand
@@ -796,27 +788,11 @@ function positions(){
       state.toAct = state.dealer;
       state.overlayShown = false;
       state.handAdvanced = false;
-      // Enable rendering immediately so blinds and layout are visible while we wait to deal
-      state.animating = false;
+      state.animating = true;
       updateControls();
-      draw();
-      // Ensure canvas has dimensions before animation; retry briefly then hard-fallback
-      function kickDealWhenReady(attempt){
-        const tries = attempt||0;
-        if(canvas.width>=10 && canvas.height>=10){
-          try { startDealAnimation(); return; } catch(e){ /* fall through to retry */ }
-        }
-        if(tries < 20){ setTimeout(()=>kickDealWhenReady(tries+1), 60); }
-        else {
-          // Hard fallback: reveal hole cards so first hand becomes visible even if animation failed
-          try {
-            state.revealed.human = 2; state.revealed.ai = 2;
-            state.animating=false; draw(); updateControls();
-            if(!maybeAutoRunout()) maybeAIMove();
-          } catch {}
-        }
-      }
-      kickDealWhenReady(0);
+      state.animating=true; draw();
+      // Ensure canvas has dimensions before animation
+      if(canvas.width<10 || canvas.height<10){ setTimeout(startDealAnimation, 50); } else { startDealAnimation(); }
     }
     function postBlind(pid, amt){ const p=state.players[pid]; const pay=Math.min(amt, p.stack); p.stack-=pay; state.betThisRound[pid]+=pay; state.pot+=pay; state.curBet=Math.max(state.curBet, state.betThisRound[pid]); }
     function minRaise(){ const highest=Math.max(state.betThisRound[0], state.betThisRound[1]); const other=Math.min(state.betThisRound[0], state.betThisRound[1]); const lastRaise=Math.max(BIG_BLIND, highest-other); return highest + lastRaise; }
@@ -980,7 +956,6 @@ function positions(){
         if(i>=seq.length){
           // Finish dealing hole cards; remain in preflop for betting
           state.animating=false; state.glAnimating=false;
-          try{ hideConnectingOverlay(); }catch{}
           updateControls();
           draw();
           if(!maybeAutoRunout()) maybeAIMove();
@@ -998,7 +973,6 @@ function positions(){
             if(s.who==='human'){ state.revealed.human = Math.max(state.revealed.human, s.idx+1); }
             else if(s.who==='ai'){ state.revealed.ai = Math.max(state.revealed.ai, s.idx+1); }
             else { state.revealed.board = Math.max(state.revealed.board, s.idx+1); }
-            try{ hideConnectingOverlay(); }catch{}
             progressed=true; setTimeout(()=>{ state.glAnimating=false; draw(); setTimeout(step, 10); }, 0);
           });
         } else {
@@ -1006,7 +980,6 @@ function positions(){
             if(s.who==='human'){ state.revealed.human = Math.max(state.revealed.human, s.idx+1); }
             else if(s.who==='ai'){ state.revealed.ai = Math.max(state.revealed.ai, s.idx+1); }
             else { state.revealed.board = Math.max(state.revealed.board, s.idx+1); }
-            try{ hideConnectingOverlay(); }catch{}
             progressed=true; draw(); setTimeout(step, 10);
           }};
           requestAnimationFrame(draw);
@@ -1017,7 +990,7 @@ function positions(){
       setTimeout(()=>{
         if(!progressed){
           state.revealed.human=2; state.revealed.ai=2; // show both hole card backs
-          state.animating=false; draw(); updateControls(); try{ hideConnectingOverlay(); }catch{} if(!maybeAutoRunout()) maybeAIMove();
+          state.animating=false; draw(); updateControls(); if(!maybeAutoRunout()) maybeAIMove();
         }
       }, 1200);
     }
@@ -1293,7 +1266,7 @@ function positions(){
       betRaiseBtn.textContent = state.curBet>0? 'Raise' : 'Bet';
 
       // In single-player, if it's AI's turn now and we're not animating, act immediately
-      if (!isMultiplayer && state.toAct===1 && !state.animating && state.street!=='showdown' && state.revealed.human>=1) {
+      if (!isMultiplayer && state.toAct===1 && !state.animating && state.street!=='showdown') {
         try { aiAct(); } catch { scheduleAI(0); }
       }
     }
@@ -1850,27 +1823,7 @@ function positions(){
     resize();
     // Start a hand only in single-player here. In multiplayer, the game master will start it after both players are ready
     if (!isMultiplayer) {
-      let __firstStarted = false;
-      function startFirstHandWhenReady(attempt){
-        if(__firstStarted) return;
-        const tries = attempt||0;
-        if(canvas && canvas.width>=10 && canvas.height>=10){ __firstStarted=true; resetHand(); return; }
-        if(tries<30){ setTimeout(()=>startFirstHandWhenReady(tries+1), 60); }
-        else { __firstStarted=true; resetHand(); }
-      }
-      startFirstHandWhenReady(0);
-      // Final safety: if still no reveal shortly after load, force-start deal or reset
-      setTimeout(()=>{
-        try{
-          if(state && state.street==='preflop' && state.revealed.human<1){
-            if(state.players && state.players[0] && state.players[0].hole && state.players[0].hole.length>=1){
-              startDealAnimation();
-            } else {
-              resetHand();
-            }
-          }
-        }catch{}
-      }, 2200);
+      resetHand();
     }
     // Expose debug helpers for console inspection
     try{
