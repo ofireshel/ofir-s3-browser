@@ -14,8 +14,8 @@ export async function onRequestPost({ request, env }) {
 
     const MODEL_ID = 'gpt-5-mini-2025-08-07';
 
-    async function runModel(modelId, messages, json = true, temperature = 0.8){
-      const p = { model: modelId, messages, temperature };
+    async function runModel(modelId, messages, json = true){
+      const p = { model: modelId, messages };
       if (json) p.response_format = { type: 'json_object' };
       const r = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
@@ -50,7 +50,7 @@ Output STRICT JSON: { "sentence": "..." }`;
 
       let resp, usedModelId = MODEL_ID;
       try {
-        resp = await runModel(MODEL_ID, [ { role:'system', content: sys }, { role:'user', content: user } ], true, 1.2);
+        resp = await runModel(MODEL_ID, [ { role:'system', content: sys }, { role:'user', content: user } ], true);
       } catch {}
       if (!resp || !resp.ok) {
         const errText = resp ? await resp.text() : 'No response';
@@ -100,7 +100,7 @@ Output STRICT JSON: { "score": 0-100, "rationale": "short reason (<=140 chars)",
 
       let resp, usedModelId = MODEL_ID;
       try {
-        resp = await runModel(MODEL_ID, [ { role:'system', content: sys }, { role:'user', content: user } ], true, 0.4);
+        resp = await runModel(MODEL_ID, [ { role:'system', content: sys }, { role:'user', content: user } ], true);
       } catch {}
       if (!resp || !resp.ok) {
         const errText = resp ? await resp.text() : 'No response';
