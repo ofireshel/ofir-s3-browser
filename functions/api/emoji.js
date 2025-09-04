@@ -12,7 +12,7 @@ export async function onRequestPost({ request, env }) {
       return new Response(JSON.stringify({ error: 'OpenAI not configured' }), { status: 503, headers: { 'Content-Type': 'application/json' } });
     }
 
-    const MODEL_ID = 'gpt-5-mini-2025-08-07';
+    const MODEL_ID = 'gpt-4o-mini';
 
     async function runModel(modelId, messages, json = true){
       const p = { model: modelId, messages };
