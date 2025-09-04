@@ -1,0 +1,12 @@
+/games.html
+  Cache-Control: no-store, must-revalidate
+
+/poker.html
+  Cache-Control: no-store, must-revalidate
+
+/poker-v2.html
+  Cache-Control: no-store, must-revalidate
+
+/*
+  X-Robots-Tag: all
+
