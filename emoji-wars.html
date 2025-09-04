@@ -1,0 +1,294 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+  <title>Emoji Wars</title>
+  <style>
+    :root{
+      --bg:#0b1220; --bg2:#0f172a; --panel:#0f1626; --panel-2:#0b1220; --panel-border:#1f2a44; --text:#e5e7eb; --muted:#94a3b8;
+      --accent:#f59e0b; --accent-2:#22d3ee; --good:#22c55e; --bad:#ef4444;
+    }
+    html,body{ height:100%; margin:0; background: radial-gradient(1200px 800px at 12% 8%, #0e1a2f, transparent),
+      radial-gradient(1100px 700px at 88% 90%, #141a31, transparent), var(--bg); color:var(--text); font-family:'Segoe UI', Arial, sans-serif; }
+    .wrap{ min-height:100%; display:grid; grid-template-rows:auto 1fr auto; }
+    header{ padding:14px; border-bottom:4px solid var(--panel-border); background:linear-gradient(180deg, #0f172a, #0b1220); display:flex; justify-content:space-between; align-items:center; gap:10px; }
+    header .title{ font-weight:900; letter-spacing:.02em; color:var(--text); }
+    main{ padding:16px; display:grid; gap:16px; }
+    .card{ border:2px solid var(--panel-border); border-radius:14px; background:linear-gradient(180deg, var(--panel), var(--panel-2)); box-shadow:0 10px 30px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.04); padding:18px; display:grid; gap:12px; max-width:980px; margin: 0 auto; }
+    .row{ display:flex; gap:12px; flex-wrap:wrap; align-items:center; }
+    .btn{ appearance:none; border:2px solid #9a3412; background:linear-gradient(180deg, var(--accent), #d97706); color:#0b1220; padding:10px 16px; border-radius:12px; font-weight:900; font-size:18px; box-shadow:0 6px 0 #9a3412; cursor:pointer; transition: transform .05s ease, box-shadow .05s ease; }
+    .btn:hover{ transform: translateY(-1px); box-shadow:0 7px 0 #9a3412; }
+    .btn:active{ transform: translateY(1px); box-shadow:0 4px 0 #9a3412; }
+    .btn:disabled{ opacity:.6; cursor:not-allowed; }
+    .meta{ font-size:13px; color:var(--muted); }
+    .err{ color:#fca5a5; font-weight:700; }
+    .sentence{ font-size:28px; line-height:1.5; color:var(--text); background:rgba(15,23,42,0.7); border:1px solid #1f2937; border-radius:12px; padding:18px 16px; min-height:80px; word-wrap:break-word; overflow-wrap:break-word; }
+    @media(max-width:720px){ .sentence{ font-size:24px; } }
+    .emojiInput{ display:grid; align-items:center; justify-items:center; gap:10px; padding:12px 14px; border:2px dashed #334155; border-radius:12px; background:rgba(2,6,23,0.5); }
+    input[type="text"]{ padding:14px 16px; border:2px solid #334155; background:#0b1220; color:var(--text); border-radius:12px; font-size:28px; width:min(480px, 92%); text-align:center; }
+    .finalScore{ font-weight:900; font-size:56px; line-height:1; text-align:center; color:var(--text); margin:6px 0 4px; }
+    .pill{ display:inline-block; padding:6px 10px; border-radius:999px; border:2px solid #334155; background:#0b1220; color:var(--text); font-weight:800; }
+    .timer{ font-weight:900; color:var(--accent-2); font-size:18px; }
+    .score{ font-weight:900; color:var(--good); }
+    .overlay{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(2,6,23,0.7); z-index:50; }
+    .overlay .inner{ background:#0b1220; border:2px solid #334155; border-radius:14px; padding:20px 24px; box-shadow:0 20px 50px rgba(0,0,0,0.6); text-align:center; }
+    #finalCard{ padding:8px 12px; gap:6px; }
+  </style>
+  <meta name="theme-color" content="#0b1220">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext x='4' y='24' font-size='20'%3E%F0%9F%98%81%3C/text%3E%3C/svg%3E"/>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="title">Emoji Wars</div>
+      <a href="games.html" style="text-decoration:none; font-weight:900; color:var(--text);">Back</a>
+    </header>
+    <main>
+      <div class="card" id="gameCard">
+        <div class="row" style="justify-content:space-between">
+          <div class="meta"><span id="roundMeta">Round 0 / 3</span></div>
+          <div class="timer" id="timer">0.0s</div>
+        </div>
+        <div class="sentence" id="sentence">Instructions: Enter exactly 5 emojis that best express the sentence. The timer starts when the sentence appears. There are 3 rounds, then your final score appears.</div>
+        <div class="emojiInput">
+          <input id="emojiInput" type="text" inputmode="text" placeholder="Type 5 emojis" aria-label="Emoji input"/>
+          <div class="meta">Accepts emojis only · <span id="countMeta">0 / 5</span></div>
+        </div>
+        <div class="row">
+          <button class="btn" id="btnStart">Start</button>
+          <button class="btn" id="btnComplete" disabled>Complete</button>
+          <div class="meta" id="status"></div>
+        </div>
+      </div>
+
+      <div class="card" id="roundResult" style="display:none">
+        <div style="font-weight:900">Round Result</div>
+        <div class="row" style="gap:16px">
+          <div class="pill">Score: <span class="score" id="roundScore">0</span></div>
+          <div class="pill">Time: <span id="roundTime">0.0s</span></div>
+        </div>
+        <div id="rationale" class="meta"></div>
+        <div id="suggestedWrap" class="meta" style="display:none">Suggested: <span id="suggested"></span></div>
+      </div>
+
+      <div class="card" id="finalCard" style="display:none">
+        <div style="font-weight:900; text-align:center">Final Score</div>
+        <div class="finalScore" id="finalScore">0</div>
+        <div class="row" style="justify-content:center">
+          <button class="btn" id="btnRestart">Play Again</button>
+        </div>
+      </div>
+    </main>
+    <footer></footer>
+  </div>
+
+  <div class="overlay" id="overlay">
+    <div class="inner">
+      <div class="meta" id="overlayLabel">Next round starts in</div>
+      <div style="font-size:42px; font-weight:900" id="overlayCounter">10</div>
+    </div>
+  </div>
+
+  <script>
+  (function(){
+    const sentenceEl = document.getElementById('sentence');
+    const emojiInput = document.getElementById('emojiInput');
+    const emojiBox = document.getElementById('emojiBox');
+    const btnStart = document.getElementById('btnStart');
+    const btnComplete = document.getElementById('btnComplete');
+    const statusEl = document.getElementById('status');
+    const timerEl = document.getElementById('timer');
+    const roundMetaEl = document.getElementById('roundMeta');
+    const countMetaEl = document.getElementById('countMeta');
+    const roundResult = document.getElementById('roundResult');
+    const roundScoreEl = document.getElementById('roundScore');
+    const roundTimeEl = document.getElementById('roundTime');
+    const rationaleEl = document.getElementById('rationale');
+    const suggestedWrap = document.getElementById('suggestedWrap');
+    const suggestedEl = document.getElementById('suggested');
+    const overlay = document.getElementById('overlay');
+    const overlayCounter = document.getElementById('overlayCounter');
+    const finalCard = document.getElementById('finalCard');
+    const btnRestart = document.getElementById('btnRestart');
+
+    const totalRounds = 3;
+    let curRound = 0;
+    let running = false;
+    let startMs = 0; let raf = 0;
+    let currentSentence = '';
+    const scores = []; // per-round {score,time,userEmojis,bestEmojis}
+
+    const seg = (typeof Intl !== 'undefined' && Intl.Segmenter) ? new Intl.Segmenter(undefined, { granularity: 'grapheme' }) : null;
+    const emojiRx = /\p{Extended_Pictographic}/u;
+
+    function graphemes(str){
+      if (!str) return [];
+      if (seg) { return Array.from(seg.segment(str), s => s.segment); }
+      // very rough fallback splitter
+      return Array.from(str);
+    }
+    function isEmojiCluster(g){ return emojiRx.test(g); }
+    function filterToEmojis(str){
+      const out = [];
+      const list = graphemes(str);
+      for (let i=0;i<list.length;i++){
+        const g = list[i];
+        if (isEmojiCluster(g)) out.push(g);
+        if (out.length >= 5) break;
+      }
+      return out;
+    }
+    function setSlots(arr){}
+    function setStatus(msg, err){ statusEl.textContent = msg||''; statusEl.className = err ? 'err' : ''; }
+    function escapeHtml(s){ return (s||'').replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c])); }
+
+    async function api(path, payload){
+      const resp = await fetch(path, { method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(payload) });
+      const txt = await resp.text();
+      if (!resp.ok) throw new Error((txt||'Server error').slice(0,300));
+      let jd; try { jd = JSON.parse(txt); } catch { throw new Error('Bad JSON'); }
+      return jd;
+    }
+
+    function updateTimer(){
+      if (!running) return;
+      const ms = performance.now() - startMs;
+      timerEl.textContent = (ms/1000).toFixed(1) + 's';
+      raf = requestAnimationFrame(updateTimer);
+    }
+    function startTimer(){ running = true; startMs = performance.now(); timerEl.textContent = '0.0s'; cancelAnimationFrame(raf); raf = requestAnimationFrame(updateTimer); }
+    function stopTimer(){ running = false; cancelAnimationFrame(raf); const ms = performance.now() - startMs; timerEl.textContent = (ms/1000).toFixed(1) + 's'; return ms/1000; }
+
+    async function startRound(){
+      curRound += 1;
+      if (curRound > totalRounds) { finishGame(); return; }
+      roundMetaEl.textContent = `Round ${curRound} / ${totalRounds}`;
+      finalCard.style.display = 'none';
+      roundResult.style.display = 'none';
+      btnComplete.disabled = true;
+      emojiInput.value = '';
+      countMetaEl.textContent = '0 / 5';
+      sentenceEl.textContent = 'Loading challenge...';
+      setStatus('');
+      try {
+        const jd = await api('/api/emoji', { mode:'generate' });
+        currentSentence = (jd.sentence || '').toString();
+        sentenceEl.textContent = currentSentence;
+        startTimer();
+      } catch(e){ setStatus('Error: '+e.message, true); sentenceEl.textContent = 'Error loading sentence.'; curRound -= 1; }
+    }
+
+    function showOverlay(seconds, cb){
+      overlay.style.display = 'flex';
+      let t = seconds;
+      overlayCounter.textContent = String(t);
+      const iv = setInterval(()=>{
+        t -= 1; overlayCounter.textContent = String(Math.max(0,t));
+        if (t <= 0){ clearInterval(iv); overlay.style.display = 'none'; if (cb) cb(); }
+      }, 1000);
+    }
+
+    function computeFinal(){
+      // Final score equals average accuracy score only
+      const n = scores.length || 1;
+      const avgScore = scores.reduce((a,b)=>a+b.score,0)/n;
+      return { final: Math.round(avgScore) };
+    }
+
+    async function completeRound(){
+      try{
+        if (!currentSentence){ setStatus('No sentence yet.', true); return; }
+        const picked = filterToEmojis(emojiInput.value);
+        if (picked.length !== 5){ setStatus('Please enter exactly 5 emojis.', true); return; }
+        const t = stopTimer();
+        setStatus('');
+        // Kick off grading in background while showing a 10s countdown
+        const grading = api('/api/emoji', { mode:'grade', sentence: currentSentence, emojis: picked, timeSec: t }).then(jd => ({ ok:true, jd })).catch(e => ({ ok:false, e }));
+        roundResult.style.display = 'grid';
+        roundScoreEl.textContent = '…';
+        roundTimeEl.textContent = t.toFixed(1)+'s';
+        rationaleEl.textContent = '';
+        suggestedWrap.style.display = 'none'; suggestedEl.textContent = '';
+        if (curRound >= totalRounds){ document.getElementById('overlayLabel').textContent = 'Calculating final scores…'; }
+        else { document.getElementById('overlayLabel').textContent = 'Next round starts in'; }
+        showOverlay(10, async ()=>{
+          try{
+            const res = await grading;
+            if (res && res.ok){
+              const jd = res.jd;
+              const score = Math.max(0, Math.min(100, Number(jd.score || 0)));
+              roundScoreEl.textContent = String(score);
+              rationaleEl.textContent = (jd.rationale||'').toString();
+              let best = [];
+              if (Array.isArray(jd.suggested) && jd.suggested.length){ best = jd.suggested.slice(0,5); suggestedWrap.style.display = 'block'; suggestedEl.textContent = best.join(' '); }
+              scores.push({ score, time: t, userEmojis: picked.slice(0,5), bestEmojis: best, sentence: currentSentence });
+            } else {
+              roundScoreEl.textContent = '0';
+              rationaleEl.textContent = 'Network issue.';
+              scores.push({ score: 0, time: t, userEmojis: picked.slice(0,5), bestEmojis: [], sentence: currentSentence });
+            }
+          }catch{ roundScoreEl.textContent = '0'; rationaleEl.textContent = 'Network issue.'; scores.push({ score: 0, time: t, userEmojis: picked.slice(0,5), bestEmojis: [], sentence: currentSentence }); }
+          if (curRound >= totalRounds) finishGame(); else startRound();
+        });
+      }catch(e){ setStatus('Error: '+e.message, true); }
+    }
+
+    function finishGame(){
+      const f = computeFinal();
+      document.getElementById('finalScore').textContent = String(f.final);
+      // Hide gameplay UI
+      document.getElementById('gameCard').style.display = 'none';
+      document.getElementById('roundResult').style.display = 'none';
+      // Show final card
+      finalCard.style.display = 'grid';
+      roundMetaEl.textContent = `Round ${Math.min(curRound,totalRounds)} / ${totalRounds}`;
+      // Show per-round recap with sentence + LLM vs User under final card
+      const recapId = 'finalRecap';
+      let recap = document.getElementById(recapId);
+      if (!recap){ recap = document.createElement('div'); recap.id = recapId; recap.className = 'card'; finalCard.insertAdjacentElement('afterend', recap); }
+      const rows = scores.map((r,i)=>{
+        const u = (r.userEmojis||[]).join(' ');
+        const b = (r.bestEmojis||[]).join(' ');
+        const s = (r.sentence||'');
+        return `<div class="card" style="margin-top:8px">
+          <div style="font-weight:900; margin-bottom:6px">Round ${i+1}</div>
+          <div class="sentence" style="font-size:18px; padding:10px 12px">${escapeHtml(s)}</div>
+          <div class="row" style="gap:10px; margin-top:6px"><div class="pill">Score</div><div>${String(r.score||0)}</div></div>
+          <div class="row" style="gap:10px; margin-top:4px"><div class="pill">LLM</div><div>${escapeHtml(b)}</div></div>
+          <div class="row" style="gap:10px; margin-top:4px"><div class="pill">You</div><div>${escapeHtml(u)}</div></div>
+        </div>`;
+      }).join('');
+      recap.innerHTML = `${rows || '<div class="meta">No data.</div>'}`;
+    }
+
+    function resetGame(){
+      curRound = 0; scores.length = 0; currentSentence = ''; timerEl.textContent = '0.0s'; setSlots([]); emojiInput.value=''; countMetaEl.textContent='0 / 5'; sentenceEl.textContent = 'Instructions: Enter exactly 5 emojis that best express the sentence. The timer starts when the sentence appears. There are 3 rounds, then your final score appears.'; setStatus(''); finalCard.style.display='none'; roundResult.style.display='none'; btnComplete.disabled = true; }
+
+    // Input handling: enforce emojis only, max 5
+    emojiInput.addEventListener('input', ()=>{
+      const picked = filterToEmojis(emojiInput.value);
+      setSlots(picked);
+      countMetaEl.textContent = picked.length+' / 5';
+      // Reconstruct input from filtered to avoid non-emoji chars
+      const joined = picked.join('');
+      if (emojiInput.value !== joined){
+        const wasFocused = document.activeElement === emojiInput;
+        emojiInput.value = joined;
+        if (wasFocused) emojiInput.focus();
+      }
+      btnComplete.disabled = (picked.length !== 5) || !running;
+    });
+
+    btnStart.onclick = ()=>{ if (running) return; resetGame(); startRound(); };
+    btnComplete.onclick = ()=>{ if (!running) return; completeRound(); };
+    btnRestart.onclick = ()=>{ resetGame(); startRound(); };
+
+    // Improve mobile UX: focus input on sentence tap
+    sentenceEl.addEventListener('click', ()=>{ emojiInput.focus(); });
+  })();
+  </script>
+</body>
+</html>
+
+
