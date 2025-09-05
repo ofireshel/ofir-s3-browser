@@ -58,7 +58,7 @@
       <h1>Heads-Up Poker</h1>
       <span id="blinds" class="chip">Blinds: 1/2</span>
       <span class="spacer"></span>
-      <a href="https://production.lexiorbit.pages.dev/games.html">All Games</a>
+      <a href="games.html">All Games</a>
     </header>
     <div id="stage">
       <canvas id="table"></canvas>
@@ -788,11 +788,27 @@ function positions(){
       state.toAct = state.dealer;
       state.overlayShown = false;
       state.handAdvanced = false;
-      state.animating = true;
+      // Enable rendering immediately so blinds and layout are visible while we wait to deal
+      state.animating = false;
       updateControls();
-      state.animating=true; draw();
-      // Ensure canvas has dimensions before animation
-      if(canvas.width<10 || canvas.height<10){ setTimeout(startDealAnimation, 50); } else { startDealAnimation(); }
+      draw();
+      // Ensure canvas has dimensions before animation; retry briefly then hard-fallback
+      function kickDealWhenReady(attempt){
+        const tries = attempt||0;
+        if(canvas.width>=10 && canvas.height>=10){
+          try { startDealAnimation(); return; } catch(e){ /* fall through to retry */ }
+        }
+        if(tries < 20){ setTimeout(()=>kickDealWhenReady(tries+1), 60); }
+        else {
+          // Hard fallback: reveal hole cards so first hand becomes visible even if animation failed
+          try {
+            state.revealed.human = 2; state.revealed.ai = 2;
+            state.animating=false; draw(); updateControls();
+            if(!maybeAutoRunout()) maybeAIMove();
+          } catch {}
+        }
+      }
+      kickDealWhenReady(0);
     }
     function postBlind(pid, amt){ const p=state.players[pid]; const pay=Math.min(amt, p.stack); p.stack-=pay; state.betThisRound[pid]+=pay; state.pot+=pay; state.curBet=Math.max(state.curBet, state.betThisRound[pid]); }
     function minRaise(){ const highest=Math.max(state.betThisRound[0], state.betThisRound[1]); const other=Math.min(state.betThisRound[0], state.betThisRound[1]); const lastRaise=Math.max(BIG_BLIND, highest-other); return highest + lastRaise; }
@@ -1266,7 +1282,7 @@ function positions(){
       betRaiseBtn.textContent = state.curBet>0? 'Raise' : 'Bet';
 
       // In single-player, if it's AI's turn now and we're not animating, act immediately
-      if (!isMultiplayer && state.toAct===1 && !state.animating && state.street!=='showdown') {
+      if (!isMultiplayer && state.toAct===1 && !state.animating && state.street!=='showdown' && state.revealed.human>=1) {
         try { aiAct(); } catch { scheduleAI(0); }
       }
     }
@@ -1823,7 +1839,27 @@ function positions(){
     resize();
     // Start a hand only in single-player here. In multiplayer, the game master will start it after both players are ready
     if (!isMultiplayer) {
-      resetHand();
+      let __firstStarted = false;
+      function startFirstHandWhenReady(attempt){
+        if(__firstStarted) return;
+        const tries = attempt||0;
+        if(canvas && canvas.width>=10 && canvas.height>=10){ __firstStarted=true; resetHand(); return; }
+        if(tries<30){ setTimeout(()=>startFirstHandWhenReady(tries+1), 60); }
+        else { __firstStarted=true; resetHand(); }
+      }
+      startFirstHandWhenReady(0);
+      // Final safety: if still no reveal shortly after load, force-start deal or reset
+      setTimeout(()=>{
+        try{
+          if(state && state.street==='preflop' && state.revealed.human<1){
+            if(state.players && state.players[0] && state.players[0].hole && state.players[0].hole.length>=1){
+              startDealAnimation();
+            } else {
+              resetHand();
+            }
+          }
+        }catch{}
+      }, 2200);
     }
     // Expose debug helpers for console inspection
     try{

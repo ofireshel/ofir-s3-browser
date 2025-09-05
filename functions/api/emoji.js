@@ -12,10 +12,12 @@ export async function onRequestPost({ request, env }) {
       return new Response(JSON.stringify({ error: 'OpenAI not configured' }), { status: 503, headers: { 'Content-Type': 'application/json' } });
     }
 
-    const MODEL_ID = 'gpt-4o-mini';
+    const primaryModel = (env.EMOJI_MODEL_ID || 'gpt-5-mini');
+    const gpt5Candidates = [primaryModel, 'gpt-5o-mini', 'gpt-5.1-mini', 'gpt-5-mini'];
+    const fallbackModel = 'gpt-4o-mini';
 
-    async function runModel(modelId, messages, json = true){
-      const p = { model: modelId, messages };
+    async function runModel(modelId, messages, json = true, temperature = 0.8){
+      const p = { model: modelId, messages, temperature };
       if (json) p.response_format = { type: 'json_object' };
       const r = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
@@ -48,17 +50,10 @@ Output STRICT JSON: { "sentence": "..." }`;
 
       const user = `Create one sentence now. Avoid dull tropes like "cat chases mouse". Every emoji category is fair game if it fits. Creative brief -> ${brief}`;
 
-      let resp, usedModelId = MODEL_ID;
-      try {
-        resp = await runModel(MODEL_ID, [ { role:'system', content: sys }, { role:'user', content: user } ], true);
-      } catch {}
-      if (!resp || !resp.ok) {
-        const errText = resp ? await resp.text() : 'No response';
-        return new Response(
-          JSON.stringify({ error: 'OpenAI error', details: (errText || '').slice(0, 1000) }),
-          { status: (resp && resp.status) || 502, headers: { 'Content-Type': 'application/json' } }
-        );
+      let resp, usedModelId = '';
+      for (const mid of gpt5Candidates) { try { resp = await runModel(mid, [ { role:'system', content: sys }, { role:'user', content: user } ], true, 1.2); if (resp.ok) { usedModelId = mid; break; } } catch {}
       }
+      if (!resp || !resp.ok) { resp = await runModel(fallbackModel, [ { role:'system', content: sys }, { role:'user', content: user } ], true, 1.2); usedModelId = fallbackModel; if (!resp.ok) { const errText = await resp.text(); return new Response(JSON.stringify({ error: 'OpenAI error', details: errText.slice(0, 1000) }), { status: resp.status || 502, headers: { 'Content-Type': 'application/json' } }); } }
       const jd = await resp.json();
       const text = (jd.choices?.[0]?.message?.content || '').trim();
       let obj = {};
@@ -98,17 +93,10 @@ Output STRICT JSON: { "score": 0-100, "rationale": "short reason (<=140 chars)",
 
       const user = `SENTENCE: ${sentence}\nEMOJIS: ${emojis.join(' ')}\nReturn strict JSON.`;
 
-      let resp, usedModelId = MODEL_ID;
-      try {
-        resp = await runModel(MODEL_ID, [ { role:'system', content: sys }, { role:'user', content: user } ], true);
-      } catch {}
-      if (!resp || !resp.ok) {
-        const errText = resp ? await resp.text() : 'No response';
-        return new Response(
-          JSON.stringify({ error: 'OpenAI error', details: (errText || '').slice(0, 1000) }),
-          { status: (resp && resp.status) || 502, headers: { 'Content-Type': 'application/json' } }
-        );
+      let resp, usedModelId = '';
+      for (const mid of gpt5Candidates) { try { resp = await runModel(mid, [ { role:'system', content: sys }, { role:'user', content: user } ], true, 0.4); if (resp.ok) { usedModelId = mid; break; } } catch {}
       }
+      if (!resp || !resp.ok) { resp = await runModel(fallbackModel, [ { role:'system', content: sys }, { role:'user', content: user } ], true, 0.4); usedModelId = fallbackModel; if (!resp.ok) { const errText = await resp.text(); return new Response(JSON.stringify({ error: 'OpenAI error', details: errText.slice(0, 1000) }), { status: resp.status || 502, headers: { 'Content-Type': 'application/json' } }); } }
       const jd = await resp.json();
       const text = (jd.choices?.[0]?.message?.content || '').trim();
       let obj = {};
