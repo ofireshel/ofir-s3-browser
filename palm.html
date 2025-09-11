@@ -63,6 +63,7 @@
     const results = document.getElementById('results');
     const pos = document.getElementById('pos');
     const neg = document.getElementById('neg');
+    
 
     let stream = null;
 
@@ -126,18 +127,18 @@
       preview.src = cvs.toDataURL('image/jpeg', 0.9);
       setStatus('');
       const posPool = [
-        {text:'Creative streak brings new opportunities', reason:'clear, unbroken heart line'},
-        {text:'Strong intuition guides wise choices', reason:'deep life line curvature'},
-        {text:'Reliable friend, loyal and caring', reason:'balanced head line length'},
-        {text:'Quick learner with adaptable mind', reason:'distinct Apollo line'},
-        {text:'Optimistic outlook attracts support', reason:'well-defined mounts'}
+        {text:'Decisive and goal-driven', reason:'strong head line'},
+        {text:'Calm under pressure', reason:'deep life line'},
+        {text:'Empathetic communicator', reason:'clear heart line'},
+        {text:'Independent thinker', reason:'distinct fate line'},
+        {text:'Focused and disciplined', reason:'balanced mounts'}
       ];
       const negPool = [
-        {text:'Tendency to overcommit your time', reason:'small breaks in head line'},
-        {text:'Impatience may cloud judgment', reason:'faint life line sections'},
-        {text:'Avoid taking others’ worries personally', reason:'fork near heart line end'},
-        {text:'Watch for burnout—pace yourself', reason:'overlap of head and heart lines'},
-        {text:'Distractions can dilute your focus', reason:'islands along minor lines'}
+        {text:'Career gain within 3 months', reason:'fate line strengthens'},
+        {text:'New partnership in 6 weeks', reason:'joining near heart line'},
+        {text:'Smart financial move soon', reason:'clean restarts on lines'},
+        {text:'Travel opportunity this season', reason:'long travel line'},
+        {text:'A bold choice unlocks progress', reason:'bright Apollo line'}
       ];
       function normalize(arr, pool){
         const out = (arr||[]).map(it=> (typeof it==='string'? {text:it, reason:''} : {text:it.text||'', reason:it.reason||''})).filter(x=>x.text).slice(0,3);
@@ -147,31 +148,54 @@
         for(let j=0;j<out.length;j++){ if(!out[j].reason){ out[j].reason = (pool[j%pool.length]||{}).reason || ''; } }
         return out.slice(0,3);
       }
-      const pItems = normalize(data.positives, posPool);
-      const nItems = normalize(data.negatives, negPool);
-      pos.innerHTML = '<div style="font-weight:800;margin-bottom:6px">Positives</div>' +
-        pItems.map(it=>'<div class="pill">+ '+escapeHtml(it.text)+'</div><div style="font-size:12px;opacity:.75;margin:-4px 0 6px 6px">Reason: '+escapeHtml(it.reason)+'</div>').join('');
-      neg.innerHTML = '<div style="font-weight:800;margin-bottom:6px">Negatives</div>' +
-        nItems.map(it=>'<div class="pill">- '+escapeHtml(it.text)+'</div><div style="font-size:12px;opacity:.75;margin:-4px 0 6px 6px">Reason: '+escapeHtml(it.reason)+'</div>').join('');
+      // New schema: positives/negatives with {trait, prediction, reason}
+      const positives = Array.isArray(data.positives) ? data.positives : [];
+      const negatives = Array.isArray(data.negatives) ? data.negatives : [];
+      function renderSection(title, items, sign){
+        const header = '<div style="font-weight:800;margin:8px 0">'+title+'</div>';
+        const body = items.slice(0,3).map(it=>{
+          const trait = (it.trait||'').trim();
+          const pred  = (it.prediction||'').trim();
+          const cue   = (it.reason||'').trim();
+          const pill  = (trait && pred) ? (trait + ' — ' + pred) : (trait || pred);
+          const below = cue; // observation shows visual cue only
+          return '<div class="pill">'+sign+' '+escapeHtml(pill)+'</div>'+
+                 '<div style="font-size:12px;opacity:.75;margin:-4px 0 6px 6px">Observation: '+escapeHtml(below)+'</div>';
+        }).join('');
+        return header + body;
+      }
+      pos.innerHTML = renderSection('Positive Traits & Predictions', positives, '+');
+      neg.innerHTML = renderSection('Cautions: Traits & Predictions', negatives, '-');
+
     }
 
     function escapeHtml(s){ return (s||'').replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c])); }
 
     btnStart.onclick = startCam;
-    function usedToday(){
+    function usedToday(limit){
       try{
-        const key = 'palm_reader_last_play_utc';
-        const prev = localStorage.getItem(key);
-        const now = new Date();
-        const today = now.toISOString().slice(0,10);
-        if (prev === today) return true;
-        localStorage.setItem(key, today);
+        const MAX = typeof limit === 'number' && limit > 0 ? limit : 5;
+        const today = new Date().toISOString().slice(0,10);
+        const usageKey = 'palm_reader_usage';
+        const legacyKey = 'palm_reader_last_play_utc';
+        // migrate legacy 1-per-day flag to usage count=1
+        const legacy = localStorage.getItem(legacyKey);
+        if (legacy === today && !localStorage.getItem(usageKey)) {
+          localStorage.setItem(usageKey, JSON.stringify({ date: today, count: 1 }));
+          try { localStorage.removeItem(legacyKey); } catch {}
+        }
+        let usage = {};
+        try { usage = JSON.parse(localStorage.getItem(usageKey) || '{}'); } catch { usage = {}; }
+        if (usage.date !== today) { usage = { date: today, count: 0 }; }
+        if ((usage.count || 0) >= MAX) return true;
+        usage.count = (usage.count || 0) + 1;
+        localStorage.setItem(usageKey, JSON.stringify(usage));
         return false;
       }catch{ return false; }
     }
 
     btnShot.onclick = async()=>{
-      if (usedToday()) { setStatus('Daily limit reached. Please try again tomorrow.', true); return; }
+      if (usedToday(5)) { setStatus('Daily limit reached. Please try again tomorrow.', true); return; }
       try{ const blob = await snapBlob(); stopCam(); await analyze(blob); }
       catch(e){ setStatus('Capture/Analyze error: '+e.message, true); }
     };

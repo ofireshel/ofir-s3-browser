@@ -24,6 +24,7 @@
     .wrap { min-height: 100%; display: grid; grid-template-rows: auto 1fr auto; }
     header { display: flex; align-items: center; gap: 12px; padding: calc(10px + env(safe-area-inset-top)) 16px 12px 16px; background: var(--panel); border-bottom: 1px solid var(--border); }
     header a { color: var(--muted); text-decoration: none; font-weight: 700; }
+    .leader{ font-weight:800; color:#fde68a; }
     main { position: relative; }
     #hud { display: none; }
     #controls { display: none; }
@@ -47,6 +48,8 @@
       <a href="games.html">← All Games</a>
       <div style="flex:1"></div>
       <div>Fruity Football</div>
+      <div style="flex:1"></div>
+      <div>Leader: <b id="leaderName" class="leader">—</b></div>
     </header>
     <main>
       <canvas id="field" width="960" height="560"></canvas>
@@ -82,6 +85,7 @@
     const ctx = canvas.getContext('2d');
     let W = canvas.clientWidth, H = canvas.clientHeight;
     const hud = document.getElementById('hud');
+    const leaderNameEl = document.getElementById('leaderName');
 
     // Game constants
     const FIELD_LEN_YARDS = 100;
@@ -608,6 +612,8 @@
         const msg = `Touchdown! Level ${state.level} complete in ${downsUsed} down${downsUsed===1?'':'s'}!` + (window.innerWidth<=820? '<br/>' : '\n') + `Proceed to level ${nextLevel}?`;
         state.pendingNextLevel = nextLevel;
         showGameOver(msg);
+        // Leaderboard check on success: use level as primary and distance progressed as secondary
+        try{ maybeSubmitLeader(state.level, Math.max(0, 100 - state.ballOnYard)); }catch(_){ }
         return;
       }
       // Clear all leaves at the end of a play
@@ -1328,6 +1334,35 @@
       state.qb.vy += diry * BASE_SPEED * 0.6;
       showCenterMessage('Boost!');
     }
+
+    // Leaderboard API helpers
+    async function fetchLeader(){
+      try{
+        const r = await fetch('/api/football-leader');
+        const j = await r.json();
+        if(j && j.leader && leaderNameEl){ leaderNameEl.textContent = j.leader.name || '—'; }
+      }catch(_){ if(leaderNameEl) leaderNameEl.textContent = '—'; }
+    }
+    async function maybeSubmitLeader(level, capturedSum){
+      try{
+        const r = await fetch('/api/football-leader');
+        const j = await r.json();
+        const cur = j && j.leader ? j.leader : { level:0, capturedSum:0 };
+        let better = false;
+        if((level||0)!==(cur.level||0)) better = (level||0)>(cur.level||0);
+        else better = (capturedSum||0)>(cur.capturedSum||0);
+        if(better){
+          const name = prompt('New Record! Enter your name for the leaderboard:','');
+          if(name && name.trim().length){
+            const w = await fetch('/api/football-leader', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name:name.trim(), level, capturedSum }) });
+            const wr = await w.json();
+            if(wr && wr.leader && wr.updated && leaderNameEl){ leaderNameEl.textContent = wr.leader.name || '—'; }
+            try{ await fetchLeader(); }catch(_){ }
+          }
+        }
+      }catch(_){ }
+    }
+    fetchLeader();
   })();
   </script>
 </body>

@@ -1,0 +1,397 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+  <title>Lexi Flash</title>
+  <meta name="theme-color" content="#0b1220">
+  <style>
+    :root{
+      --bg:#0b1220; --fg:#e5e7eb; --muted:#94a3b8;
+      --accent:#60a5fa; --good:#34d399; --warn:#f59e0b; --bad:#ef4444;
+    }
+    html,body{ height:100%; margin:0; background:var(--bg); color:var(--fg); font-family:'Segoe UI', system-ui, -apple-system, Arial, sans-serif; }
+    .wrap{ position:relative; min-height:100%; width:100%; overflow:hidden; }
+    .bar{ position:fixed; top:0; left:0; right:0; height:54px; padding:10px 14px; box-sizing:border-box; display:flex; align-items:center; justify-content:space-between; background:rgba(5,10,20,0.7); backdrop-filter: blur(8px); z-index:20; border-bottom:1px solid rgba(255,255,255,0.06); }
+    .bar .title{ font-weight:800; letter-spacing:.02em; }
+    .bar .meta{ display:flex; gap:10px; font-weight:600; color:var(--muted); }
+    .bar .meta b{ color:var(--fg); }
+    .leader{ font-weight:800; color:#fde68a; }
+
+    .play{ position:fixed; inset:54px 0 0 0; }
+    #field{ position:absolute; inset:0; touch-action:none; }
+
+    .letter{ position:absolute; width:58px; height:58px; display:grid; place-items:center; border:2px solid var(--accent); color:var(--accent); border-radius:8px; font-weight:900; font-size:22px; background:rgba(96,165,250,0.08); box-shadow:0 6px 18px rgba(0,0,0,0.35); user-select:none; -webkit-user-select:none; }
+    .letter.captured{ background:rgba(52,211,153,0.12); border-color:var(--good); color:var(--good); }
+
+    .overlay{ position:absolute; inset:0; display:grid; place-items:center; background:rgba(0,0,0,0.55); z-index:30; }
+    .card{ width:min(520px, 92vw); background:#0f172a; border:1px solid rgba(255,255,255,0.08); border-radius:14px; padding:18px; display:grid; gap:14px; text-align:center; box-shadow: 0 12px 36px rgba(0,0,0,0.45); }
+    .row{ display:flex; gap:10px; justify-content:center; flex-wrap:wrap; }
+    .btn{ appearance:none; border:none; cursor:pointer; font-weight:900; letter-spacing:.02em; padding:12px 16px; border-radius:10px; border:2px solid #1e293b; background:#111827; color:#e5e7eb; box-shadow: 0 6px 0 #1f2937; transition: transform .08s ease; }
+    .btn:active{ transform: translateY(2px); box-shadow: 0 4px 0 #1f2937; }
+    .btn.primary{ background:var(--accent); color:#0b1220; border-color:#1d4ed8; box-shadow:0 6px 0 #1d4ed8; }
+    .btn.good{ background:var(--good); color:#063; border-color:#16a34a; box-shadow:0 6px 0 #16a34a; }
+    .btn.warn{ background:var(--warn); color:#1f1300; border-color:#d97706; box-shadow:0 6px 0 #d97706; }
+    .btn.ghost{ background:transparent; color:var(--muted); border-color:#1f2937; }
+
+    .count{ font-size:64px; font-weight:900; letter-spacing:.04em; color:#fff; text-shadow:0 8px 26px rgba(0,0,0,0.5); }
+    .hint{ color:var(--muted); font-weight:600; }
+
+    .answer{ display:grid; gap:8px; }
+    .answer input{ font-size:22px; font-weight:800; text-transform:uppercase; letter-spacing:.18em; text-align:center; padding:12px 14px; border-radius:10px; border:2px solid #1f2937; background:#0b1220; color:#e5e7eb; }
+    .answer .help{ font-size:13px; color:var(--muted); }
+    .result.ok{ color:var(--good); font-weight:800; }
+    .result.bad{ color:var(--bad); font-weight:800; }
+
+    /* Mobile-only gate */
+    .desktop-gate{ position:fixed; inset:0; display:none; place-items:center; background:#0b1220; z-index:50; }
+    @media (min-width: 861px){ .desktop-gate{ display:grid; } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="bar">
+      <div class="title">Lexi Flash</div>
+      <div class="meta">
+        <div>Leader: <b id="leaderName" class="leader">—</b></div>
+        <div>Level: <b id="lvl">1</b></div>
+        <div>Letters: <b id="lettersTotal">5</b></div>
+        <div>Captured: <b id="captured">0</b></div>
+      </div>
+    </div>
+    <div class="play">
+      <div id="field"></div>
+      <div id="gate" class="overlay" style="display:grid">
+        <div class="card">
+          <h2 style="margin:0;font-size:24px">Ready?</h2>
+          <p class="hint" id="levelHint">Level 1 • 5 letters will flash. Capture them by tapping.</p>
+          <div class="row">
+            <button id="startBtn" class="btn primary">Start Level</button>
+            <a href="games.html" class="btn ghost">Back to Games</a>
+          </div>
+        </div>
+      </div>
+      <div id="overlay" class="overlay" style="display:none">
+        <div class="card" id="overlayCard"></div>
+      </div>
+    </div>
+    <div class="desktop-gate">
+      <div class="card">
+        <h2 style="margin:0">Mobile Only</h2>
+        <p class="hint">Open this game on a phone to play.</p>
+        <div class="row">
+          <a href="games.html" class="btn">Back to Games</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  (function(){
+    var field = document.getElementById('field');
+    var gate = document.getElementById('gate');
+    var overlay = document.getElementById('overlay');
+    var overlayCard = document.getElementById('overlayCard');
+    var startBtn = document.getElementById('startBtn');
+    var lvlEl = document.getElementById('lvl');
+    var lettersTotalEl = document.getElementById('lettersTotal');
+    var capturedEl = document.getElementById('captured');
+    var leaderNameEl = document.getElementById('leaderName');
+    var levelHint = document.getElementById('levelHint');
+
+    var currentLevel = 1;
+    var baseCount = 5;
+    var capturedThisRun = 0;
+    var sessionCapturedSum = 0; // cumulative across successful levels this session
+
+    function randInt(min, max){ return Math.floor(Math.random()*(max-min+1))+min; }
+    function pickLetter(excludeSet){
+      var letter;
+      do{
+        letter = String.fromCharCode(65 + Math.floor(Math.random()*26));
+      } while(excludeSet && excludeSet.has(letter));
+      return letter;
+    }
+    function generateRandomSequence(n){
+      var used = new Set();
+      var seq = [];
+      while(seq.length < n){
+        var L = pickLetter(used);
+        used.add(L);
+        seq.push(L);
+      }
+      return seq;
+    }
+    function lettersForLevel(level){ return baseCount + (level-1); }
+    function getLevelSequence(){
+      var n = lettersForLevel(currentLevel);
+      return generateRandomSequence(n);
+    }
+    function updateHUD(){
+      lvlEl.textContent = String(currentLevel);
+      lettersTotalEl.textContent = String(lettersForLevel(currentLevel));
+      capturedEl.textContent = String(capturedThisRun);
+      levelHint.textContent = 'Level ' + currentLevel + ' • ' + lettersForLevel(currentLevel) + ' letters will flash. Capture them by tapping.';
+    }
+
+    // Leaderboard helpers
+    async function fetchLeader(){
+      try{
+        var res = await fetch('/api/lexi-flash-leader');
+        var data = await res.json();
+        if(data && data.leader){ leaderNameEl.textContent = data.leader.name || '—'; }
+      }catch(e){ leaderNameEl.textContent = '—'; }
+    }
+    async function maybeSubmitLeader(finalLevel, totalCaptured){
+      try{
+        var res = await fetch('/api/lexi-flash-leader');
+        var data = await res.json();
+        var current = data && data.leader ? data.leader : { level:0, capturedSum:0 };
+        var better = false;
+        if(finalLevel !== (current.level||0)) better = finalLevel > (current.level||0);
+        else better = totalCaptured > (current.capturedSum||0);
+        if(better){
+          var name = prompt('New Record! Enter your name for the leaderboard:','');
+          if(name && name.trim().length){
+            try{
+              var r = await fetch('/api/lexi-flash-leader', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name:name.trim(), level: finalLevel, capturedSum: totalCaptured }) });
+              var j = await r.json();
+              if(j && j.leader && j.updated){ leaderNameEl.textContent = j.leader.name || '—'; }
+            }catch(e){ /* ignore */ }
+            // Refresh from server as source of truth
+            try{ await fetchLeader(); }catch(e){}
+          }
+        }
+      }catch(e){ /* ignore */ }
+    }
+
+    function countdown(seconds){
+      return new Promise(function(resolve){
+        overlay.style.display = 'grid';
+        overlayCard.innerHTML = '';
+        var n = seconds;
+        var title = document.createElement('div');
+        title.className = 'count';
+        title.textContent = n;
+        var hint = document.createElement('div');
+        hint.className = 'hint';
+        hint.textContent = 'Get ready to tap the letters!';
+        overlayCard.appendChild(title);
+        overlayCard.appendChild(hint);
+        var iv = setInterval(function(){
+          n -= 1; title.textContent = n > 0 ? n : 'Go!';
+          if(n <= 0){
+            clearInterval(iv);
+            setTimeout(function(){ overlay.style.display = 'none'; resolve(); }, 500);
+          }
+        }, 1000);
+      });
+    }
+
+    function placeWithinBounds(size){
+      var rect = field.getBoundingClientRect();
+      var safe = 6; // padding from edges
+      var x = randInt(safe, Math.max(safe, rect.width - size - safe));
+      var y = randInt(safe, Math.max(safe, rect.height - size - safe));
+      return {x:x, y:y};
+    }
+
+    function flashLetter(letter){
+      return new Promise(function(resolve){
+        var sz = 58; // 20% larger than previous 48px
+        var pos = placeWithinBounds(sz);
+        var el = document.createElement('div');
+        el.className = 'letter';
+        el.textContent = letter;
+        el.style.left = pos.x + 'px';
+        el.style.top = pos.y + 'px';
+        var captured = false;
+        var done = false;
+        var resolved = false;
+        var hideTimer = null, graceTimer = null;
+        function markCaptured(){
+          if(resolved || done || captured) return;
+          captured = true;
+          capturedThisRun += 1; updateHUD();
+          el.classList.add('captured');
+          // keep on screen; disable further taps
+          el.onclick = null; el.ontouchstart = null;
+          try{ if(hideTimer) clearTimeout(hideTimer); }catch(e){}
+          try{ if(graceTimer) clearTimeout(graceTimer); }catch(e){}
+          // ensure visible again if it was hidden during grace
+          el.style.opacity = '1';
+          done = true; resolved = true; resolve(true);
+        }
+        el.addEventListener('click', markCaptured, { once:true });
+        el.addEventListener('touchstart', function(e){ e.preventDefault(); markCaptured(); }, { once:true, passive:false });
+        field.appendChild(el);
+        // visible window based on human reaction time
+        // Level 1 is +50% longer, then gently reduces toward base, with a floor to keep playable
+        var baseMin = 140, baseMax = 260;
+        var extra = 0.50 / currentLevel; // L1=0.50, L2=0.25, L3≈0.17 ...
+        var visibleFactor = Math.max(1.05, 1 + extra); // never below +5%
+        var visibleMs = randInt(Math.round(baseMin * visibleFactor), Math.round(baseMax * visibleFactor));
+        // grace period: allow slightly-late taps to still capture and keep the letter
+        var baseGrace = 350; // ms
+        var graceMs = Math.max(180, Math.round(baseGrace * (1 + 0.3/currentLevel)));
+        hideTimer = setTimeout(function(){
+          if(captured){ return; }
+          // hide visually but keep tappable for grace window
+          el.style.opacity = '0';
+          graceTimer = setTimeout(function(){
+            if(captured){ return; }
+            try{ field.removeChild(el); }catch(e){}
+            if(!resolved){ resolved = true; resolve(false); }
+            done = true;
+          }, graceMs);
+        }, visibleMs);
+      });
+    }
+
+    function wait(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
+
+    function showFireworks(durationMs){
+      var play = document.querySelector('.play');
+      var existing = document.getElementById('fxCanvas');
+      if(existing){ try{ existing.remove(); }catch(e){} }
+      var cv = document.createElement('canvas');
+      cv.id = 'fxCanvas';
+      cv.style.position = 'absolute';
+      cv.style.inset = '0';
+      cv.style.zIndex = '40';
+      cv.style.pointerEvents = 'none';
+      play.appendChild(cv);
+      var ctx = cv.getContext('2d');
+      function resize(){
+        var rect = play.getBoundingClientRect();
+        var dpr = Math.max(1, window.devicePixelRatio||1);
+        cv.width = Math.ceil(rect.width * dpr);
+        cv.height = Math.ceil(rect.height * dpr);
+        cv.style.width = rect.width + 'px';
+        cv.style.height = rect.height + 'px';
+        ctx.setTransform(dpr,0,0,dpr,0,0);
+      }
+      addEventListener('resize', resize);
+      resize();
+      var particles = [];
+      function spawnFirework(){
+        var rect = play.getBoundingClientRect();
+        var cx = Math.random()*rect.width*0.9 + rect.width*0.05;
+        var cy = Math.random()*rect.height*0.5 + rect.height*0.15;
+        var colors = ['#f87171','#60a5fa','#facc15','#34d399','#a78bfa','#fb7185'];
+        var col = colors[(Math.random()*colors.length)|0];
+        var count = 40 + ((Math.random()*30)|0);
+        for(var i=0;i<count;i++){
+          var angle = Math.random()*Math.PI*2;
+          var speed = 80 + Math.random()*180;
+          particles.push({ x:cx, y:cy, vx:Math.cos(angle)*speed, vy:Math.sin(angle)*speed, life:0, ttl:1000+Math.random()*600, color:col });
+        }
+      }
+      var start = performance.now();
+      var last = start; var spawnAcc = 0;
+      function step(t){
+        var dt = Math.min(0.033, (t-last)/1000);
+        last = t;
+        var w = cv.width/(window.devicePixelRatio||1), h = cv.height/(window.devicePixelRatio||1);
+        ctx.fillStyle = 'rgba(0,0,0,0.08)';
+        ctx.fillRect(0,0,w,h);
+        var elapsed = t - start; spawnAcc += dt*1000;
+        if(elapsed < durationMs){ if(spawnAcc > 150){ spawnAcc = 0; spawnFirework(); } }
+        for(var i=particles.length-1; i>=0; i--){
+          var p = particles[i]; p.life += dt*1000; p.vy += 180*dt*0.4; p.x += p.vx*dt; p.y += p.vy*dt;
+          if(p.life >= p.ttl){ particles.splice(i,1); continue; }
+          var alpha = Math.max(0, 1 - p.life/p.ttl);
+          ctx.globalAlpha = alpha; ctx.fillStyle = p.color; ctx.beginPath(); ctx.arc(p.x,p.y,2.5,0,Math.PI*2); ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+        if(elapsed < durationMs + 500 || particles.length){ requestAnimationFrame(step); }
+        else { removeEventListener('resize', resize); try{ cv.remove(); }catch(e){} }
+      }
+      requestAnimationFrame(step);
+    }
+
+    async function runLevel(){
+      capturedThisRun = 0; updateHUD();
+      var seq = getLevelSequence();
+      // show 5s countdown
+      await countdown(5);
+      for(var i=0;i<seq.length;i++){
+        // gap 1-2s randomly, with +10% latency at level 1 that decays with level
+        var gapBaseMin = 1000, gapBaseMax = 2000;
+        // Softer decay from L1 to L2 using gentle level factor; keep global +20%
+        var gapFactor = 1.20 * (1 + 0.08 / currentLevel); // L1=1.296, L2≈1.248 (small step)
+        var gapMs = randInt(Math.round(gapBaseMin * gapFactor), Math.round(gapBaseMax * gapFactor));
+        await wait(gapMs);
+        await flashLetter(seq[i]);
+      }
+      // Clear all letters from the field (including captured) at end of level
+      Array.from(field.querySelectorAll('.letter')).forEach(function(n){ try{ n.remove(); }catch(e){} });
+      // Prompt for answer
+      overlay.style.display = 'grid';
+      var html = ''+
+        '<h2 style="margin:0">Type the ' + seq.length + ' letters in order</h2>'+
+        '<div class="answer">'+
+          '<input id="answerInput" autocomplete="off" autocapitalize="characters" inputmode="latin" placeholder="e.g. ABCDE" maxlength="'+seq.length+'">'+
+          '<div class="help">Use your keyboard. It will auto-uppercase.</div>'+
+        '</div>'+
+        '<div class="row">'+
+          '<button id="submitAns" class="btn primary">Submit</button>'+
+          '<button id="retryBtn" class="btn">Retry Level</button>'+
+        '</div>'+
+        '<div id="result" class="result" style="min-height:22px"></div>'+
+        '<div class="row">'+
+          '<button id="prevBtn" class="btn">⬅ Back</button>'+
+          '<button id="nextBtn" class="btn good">Next ➡</button>'+
+        '</div>';
+      overlayCard.innerHTML = html;
+      var ansInput = document.getElementById('answerInput');
+      var submitBtn = document.getElementById('submitAns');
+      var retryBtn = document.getElementById('retryBtn');
+      var prevBtn = document.getElementById('prevBtn');
+      var nextBtn = document.getElementById('nextBtn');
+      ansInput.focus();
+      ansInput.addEventListener('input', function(){ this.value = this.value.toUpperCase().replace(/[^A-Z]/g,''); });
+      submitBtn.addEventListener('click', function(){
+        var val = (ansInput.value||'').toUpperCase().replace(/[^A-Z]/g,'');
+        var correct = seq.join('');
+        var res = document.getElementById('result');
+        if(val.length !== seq.length){ res.className='result bad'; res.textContent = 'Please enter '+seq.length+' letters.'; return; }
+        if(val === correct){
+          res.className='result ok'; res.textContent = 'Correct!'; showFireworks(2000);
+          // update session totals only on success
+          sessionCapturedSum += (capturedThisRun||0);
+          // Only prompt/save when success
+          maybeSubmitLeader(currentLevel, sessionCapturedSum);
+        } else {
+          res.className='result bad'; res.textContent = 'Oops. Correct was '+correct;
+        }
+      });
+      retryBtn.addEventListener('click', function(){
+        overlay.style.display = 'none';
+        // clear non-captured letters (should already be gone); keep captured from previous run? Spec says captured stay; but on retry, clear all for fairness
+        Array.from(field.querySelectorAll('.letter')).forEach(function(n){ n.remove(); });
+        runLevel();
+      });
+      prevBtn.addEventListener('click', function(){
+        if(currentLevel > 1){ currentLevel -= 1; }
+        updateHUD();
+        // show gate again
+        overlay.style.display = 'none'; gate.style.display = 'grid';
+      });
+      nextBtn.addEventListener('click', function(){
+        currentLevel += 1; updateHUD();
+        overlay.style.display = 'none'; gate.style.display = 'grid';
+      });
+    }
+
+    startBtn.addEventListener('click', function(){ gate.style.display='none'; runLevel(); });
+
+    // Init
+    updateHUD();
+    fetchLeader();
+  })();
+  </script>
+</body>
+</html>
+
+

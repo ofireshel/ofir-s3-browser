@@ -14,3 +14,14 @@ MORAL_MODEL_ID = "gpt-5-mini"
 [ai]
 binding = "AI"
 
+[[kv_namespaces]]
+binding = "SCORES"
+# Replace with your actual namespace id created above
+id = "b71bae9ab1da4d6195abfa20ec0f239b"
+
+[env.preview]
+[[env.preview.kv_namespaces]]
+binding = "SCORES"
+# Use your preview namespace id (created with --preview)
+id = "db328232980346abbb9af422da0240ea"
+

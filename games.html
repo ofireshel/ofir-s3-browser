@@ -13,7 +13,7 @@
       --c3:#ffe100; /* yellow */
       --c4:#00d08a; /* pop green */
     }
-    html,body{ height:100%; margin:0; font-family:'Segoe UI', Arial, sans-serif; background:var(--paper); color:var(--ink); overflow-x:hidden; touch-action: pan-y; overscroll-behavior-x: none; }
+    html,body{ height:100%; margin:0; font-family:'Segoe UI', Arial, sans-serif; background: linear-gradient(0deg, rgba(13,148,136,0.06), rgba(13,148,136,0.06)), var(--paper); color:var(--ink); overflow-x:hidden; touch-action: pan-y; overscroll-behavior-x: none; }
     .wrap{ min-height:100%; display:grid; grid-template-rows: 1fr; }
     /* Faded Warhol-style background image */
     body::before{ content:""; position:fixed; inset:0; z-index:0; pointer-events:none;
@@ -110,6 +110,17 @@
             <p class="subtitle">Keep Your Brain Young</p>
             <div class="row">
               <a class="cta" href="tapple.html" aria-label="Play LexiOrbit">▶ Play</a>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel p2" aria-label="Lexi Flash (Mobile)">
+          <span class="dots"></span>
+          <div class="panel-inner">
+            <h2 class="title">Lexi Flash</h2>
+            <p class="subtitle">Mobile‑Only Reaction Letter Memory</p>
+            <div class="row">
+              <a class="cta" href="lexi-flash.html" aria-label="Play Lexi Flash">▶ Play</a>
             </div>
           </div>
         </section>
