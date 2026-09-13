@@ -12,7 +12,9 @@ Use the existing Pages project `lexiorbit`:
 npx --yes wrangler@latest pages deploy . --project-name lexiorbit --branch main --commit-dirty=true
 ```
 
-Fantasy Studio talks to a home ComfyUI tunnel. After a fresh project (or if health shows "Engine offline"):
+Fantasy Studio talks to home ComfyUI through a Cloudflare tunnel. The worker looks up the tunnel from Pages secrets (any of `COMFY_URL`, `TUNNEL_URL`, `HOME_TUNNEL`, …), KV, or named Cloudflare tunnels. Do not deploy a wrangler `[vars]` block that omits existing production env vars — that can wipe a plaintext `COMFY_URL`.
+
+If health still shows offline while Comfy is running, paste the current `https://` tunnel URL in Fantasy Studio (Connect local engine), or:
 
 ```bash
 npx wrangler pages secret put COMFY_URL --project-name lexiorbit

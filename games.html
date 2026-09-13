@@ -71,6 +71,13 @@
         linear-gradient(180deg, rgba(10,10,10,.2), rgba(10,10,10,.55)),
         linear-gradient(135deg, #e08a45, #5c2e12 55%, #1a1008);
     }
+    .panel.apartment{
+      background:
+        radial-gradient(circle at 48% 28%, rgba(255,255,255,.9) 0 2%, transparent 2.5%),
+        radial-gradient(circle at 48% 43%, rgba(255,255,255,.6) 0 7%, transparent 7.5%),
+        linear-gradient(135deg, #4d267a, #0a8b9a 55%, #f1b34a);
+    }
+    .panel.apartment .cta{ background:var(--c3); }
     @media(max-width:860px){
       body{ padding-top: 12px; }
       .warhol-grid{ width:100%; justify-items:center; }
@@ -160,6 +167,17 @@
           </div>
         </section>
 
+        <section class="panel apartment" aria-label="Apartment Walkthrough">
+          <span class="dots"></span>
+          <div class="panel-inner">
+            <h2 class="title">Apartment</h2>
+            <p class="subtitle">Walk around a real person in 3D</p>
+            <div class="row">
+              <a class="cta" href="apartment.html" aria-label="Enter Apartment Walkthrough">▶ Enter</a>
+            </div>
+          </div>
+        </section>
+
       </div>
     </main>
     
@@ -171,5 +189,4 @@
   </script>
 </body>
 </html>
-
 

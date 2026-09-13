@@ -19,6 +19,6 @@ export async function onRequestGet({ request, env }) {
   try {
     return jsonResponse(request, await progressPayload(env, promptId));
   } catch (error) {
-    return jsonResponse(request, { error: error.message || "Progress check failed" }, 502);
+    return jsonResponse(request, { error: error.message || "Progress check failed" }, 409);
   }
 }

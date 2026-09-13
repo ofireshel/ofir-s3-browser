@@ -29,6 +29,6 @@ export async function onRequestGet({ request, env }) {
     headers.set("Content-Type", contentType);
     return new Response(upstream.body, { status: upstream.status, headers });
   } catch (error) {
-    return jsonResponse(request, { error: error.message || "image proxy failed" }, 502);
+    return jsonResponse(request, { error: error.message || "image proxy failed" }, 409);
   }
 }

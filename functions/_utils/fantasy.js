@@ -3,15 +3,98 @@ const ALLOWED_ORIGINS = new Set([
   "https://www.33games.win",
 ]);
 
+const KV_URL_KEY = "fantasy_comfy_url";
+const KV_CACHE_KEY = "fantasy_comfy_cache";
+const UNREACHABLE =
+  "Fantasy backend unreachable. The home tunnel may be offline — restart it and try again.";
+
+const ENV_URL_KEYS = [
+  "COMFY_URL",
+  "COMFYUI_URL",
+  "COMFY_BASE_URL",
+  "COMFY_BASE",
+  "COMFY_HOST",
+  "COMFY_ORIGIN",
+  "COMFY_ENDPOINT",
+  "COMFYUI_BASE_URL",
+  "FANTASY_URL",
+  "FANTASY_COMFY_URL",
+  "FANTASY_BACKEND",
+  "FANTASY_ORIGIN",
+  "FANTASY_TUNNEL",
+  "FANTASY_HOME",
+  "TUNNEL_URL",
+  "TUNNEL",
+  "CLOUDFLARE_TUNNEL",
+  "CF_TUNNEL_URL",
+  "ARGO_URL",
+  "ARGO_TUNNEL_URL",
+  "CLOUDFLARED_URL",
+  "QUICK_TUNNEL_URL",
+  "TRYCLOUDFLARE_URL",
+  "HOME_URL",
+  "HOME_TUNNEL",
+  "HOME_COMFY",
+  "HOME_COMFY_URL",
+  "LOCAL_URL",
+  "LOCAL_COMFY",
+  "LOCAL_COMFY_URL",
+  "BACKEND_URL",
+  "SD_URL",
+  "A1111_URL",
+  "FORGE_URL",
+  "WEBUI_URL",
+  "IMAGE_GEN_URL",
+  "GENERATION_URL",
+];
+
+const BINDING_NAMES = ["COMFY", "COMFYUI", "FANTASY", "TUNNEL", "HOME"];
+
+let cachedTarget = null;
+let cachedAt = 0;
+
+function abortAfter(ms) {
+  if (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function") {
+    return AbortSignal.timeout(ms);
+  }
+  const controller = new AbortController();
+  setTimeout(() => controller.abort(), ms);
+  return controller.signal;
+}
+
+const KV_URL_KEYS = [
+  KV_URL_KEY,
+  "comfy_url",
+  "COMFY_URL",
+  "tunnel_url",
+  "home_tunnel",
+  "fantasy:comfy",
+  "fantasy/config",
+  "config:fantasy",
+  "comfyui_url",
+  "fantasy_tunnel",
+];
+
 export function corsHeaders(request) {
   const origin = request.headers.get("Origin") || "";
-  const allow = ALLOWED_ORIGINS.has(origin) ? origin : "https://33games.win";
+  let allow = "https://33games.win";
+  if (ALLOWED_ORIGINS.has(origin)) allow = origin;
+  else if (isPagesDev(origin)) allow = origin;
   return {
     "Access-Control-Allow-Origin": allow,
     "Access-Control-Allow-Headers": "Content-Type",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     Vary: "Origin",
   };
+}
+
+function isPagesDev(origin) {
+  try {
+    const host = new URL(origin).host;
+    return host.endsWith(".pages.dev") || host.endsWith(".workers.dev");
+  } catch {
+    return false;
+  }
 }
 
 export function optionsResponse(request) {
@@ -34,31 +117,291 @@ function jsonSpaced(value) {
   return JSON.stringify(value, null, 0).replace(/":/g, '": ').replace(/","/g, '", "');
 }
 
+function requestHost(request) {
+  try {
+    return new URL(request.url).host;
+  } catch {
+    return "";
+  }
+}
+
 export function guardOrigin(request) {
   const origin = request.headers.get("Origin");
-  if (!origin || !ALLOWED_ORIGINS.has(origin)) {
+  const host = requestHost(request);
+  if (!origin) {
+    if (
+      host === "33games.win" ||
+      host === "www.33games.win" ||
+      host.endsWith(".pages.dev")
+    ) {
+      return null;
+    }
     return jsonResponse(request, { error: "forbidden" }, 403);
   }
-  return null;
+  if (ALLOWED_ORIGINS.has(origin) || isPagesDev(origin)) return null;
+  return jsonResponse(request, { error: "forbidden" }, 403);
 }
 
 export function clientId(env) {
   return env.COMFY_CLIENT_ID || "28997e47-ce99-4d95-b4b3-c0deac845ab8";
 }
 
-export function comfyBase(env) {
-  const raw = env.COMFY_URL || env.FANTASY_URL || env.TUNNEL_URL || "";
-  return String(raw).replace(/\/+$/, "");
+function extractHttpsUrl(raw) {
+  if (raw == null) return "";
+  if (typeof raw === "object") {
+    const nested = raw.url || raw.base || raw.origin || raw.tunnel || raw.comfy;
+    return extractHttpsUrl(nested);
+  }
+  const text = String(raw).trim();
+  if (!text) return "";
+  if (text.startsWith("{") || text.startsWith("[")) {
+    try {
+      return extractHttpsUrl(JSON.parse(text));
+    } catch {
+      /* continue */
+    }
+  }
+  const match = text.match(/https:\/\/[^\s"'<>\\]+/i);
+  const candidate = match ? match[0] : text;
+  try {
+    const url = new URL(candidate);
+    if (url.protocol !== "https:") return "";
+    const host = url.hostname.toLowerCase();
+    if (host === "33games.win" || host === "www.33games.win") return "";
+    if (host.endsWith(".pages.dev")) return "";
+    url.pathname = url.pathname.replace(/\/+$/, "") || "";
+    url.search = "";
+    url.hash = "";
+    const base = url.toString().replace(/\/+$/, "");
+    return base;
+  } catch {
+    return "";
+  }
+}
+
+function looksLikeComfyService(service) {
+  const s = String(service || "").toLowerCase();
+  return (
+    s.includes("8188") ||
+    s.includes("comfy") ||
+    s.includes("8189") ||
+    s.includes("7860")
+  );
+}
+
+function comfyBinding(env) {
+  for (const name of BINDING_NAMES) {
+    const binding = env[name];
+    if (binding && typeof binding.fetch === "function") return binding;
+  }
+  return null;
+}
+
+async function probeComfy(base, binding) {
+  const paths = ["/system_stats", "/queue", "/object_info"];
+  for (const path of paths) {
+    try {
+      const response = await comfyRequest(base, binding, path, { method: "GET" });
+      if (response && (response.ok || response.status === 405 || response.status === 400)) {
+        return true;
+      }
+    } catch {
+      /* try next */
+    }
+  }
+  return false;
+}
+
+async function comfyRequest(base, binding, path, init = {}) {
+  const headers = new Headers(init.headers || {});
+  const opts = { ...init, headers };
+  if (!opts.signal) {
+    opts.signal = abortAfter(8000);
+  }
+  if (binding) {
+    return binding.fetch(new Request(`https://comfy.local${path}`, opts));
+  }
+  if (!base) throw new Error(UNREACHABLE);
+  return fetch(base + path, opts);
+}
+
+async function readKvUrls(env) {
+  const found = [];
+  if (!env.SCORES) return found;
+  for (const key of KV_URL_KEYS) {
+    try {
+      const raw = await env.SCORES.get(key);
+      const url = extractHttpsUrl(raw);
+      if (url) found.push(url);
+    } catch {
+      /* ignore */
+    }
+  }
+  try {
+    for (const prefix of ["fantasy", "comfy", "tunnel", "home"]) {
+      const listed = await env.SCORES.list({ prefix, limit: 40 });
+      for (const entry of listed.keys || []) {
+        if (String(entry.name).startsWith("fantasy_job:")) continue;
+        const raw = await env.SCORES.get(entry.name);
+        const url = extractHttpsUrl(raw);
+        if (url) found.push(url);
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  return found;
+}
+
+function envUrls(env) {
+  const found = [];
+  for (const key of ENV_URL_KEYS) {
+    const url = extractHttpsUrl(env[key]);
+    if (url) found.push(url);
+  }
+  return found;
+}
+
+async function cfApi(env, path) {
+  if (!env.CF_ACCOUNT_ID || !env.CF_API_TOKEN) return null;
+  const response = await fetch(
+    `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}${path}`,
+    {
+      headers: { Authorization: `Bearer ${env.CF_API_TOKEN}` },
+      signal: abortAfter(8000),
+    },
+  );
+  if (!response.ok) return null;
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+async function urlsFromCloudflare(env) {
+  const found = [];
+  const project = await cfApi(env, "/pages/projects/lexiorbit");
+  const envVars =
+    project?.result?.deployment_configs?.production?.env_vars ||
+    project?.result?.canonical_deployment?.env_vars ||
+    {};
+  for (const value of Object.values(envVars)) {
+    const raw = value && (value.value || value);
+    const url = extractHttpsUrl(raw);
+    if (url) found.push(url);
+  }
+
+  const tunnels = await cfApi(env, "/cfd_tunnel?is_deleted=false&per_page=50");
+  const list = tunnels?.result || [];
+  const ranked = [...list].sort((a, b) => {
+    const score = (t) =>
+      /comfy|fantasy|sd|8188|home|local|studio/i.test(String(t.name || "")) ? 0 : 1;
+    return score(a) - score(b);
+  });
+  for (const tunnel of ranked.slice(0, 8)) {
+    const id = tunnel.id;
+    if (!id) continue;
+    const cfg = await cfApi(env, `/cfd_tunnel/${id}/configurations`);
+    const ingress = cfg?.result?.config?.ingress || cfg?.result?.ingress || [];
+    for (const rule of ingress) {
+      if (!looksLikeComfyService(rule.service) && !/comfy|fantasy|sd/i.test(rule.hostname || "")) {
+        continue;
+      }
+      if (rule.hostname) found.push(extractHttpsUrl(`https://${rule.hostname}`));
+    }
+  }
+  return found.filter(Boolean);
+}
+
+async function rememberBase(env, base) {
+  try {
+    if (env.SCORES) {
+      await env.SCORES.put(
+        KV_CACHE_KEY,
+        JSON.stringify({ base, at: Date.now() }),
+        { expirationTtl: 60 * 30 },
+      );
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+export async function resolveComfyTarget(env) {
+  if (cachedTarget && Date.now() - cachedAt < 15000) return cachedTarget;
+
+  async function accept(base, binding, source) {
+    const ok = await probeComfy(base, binding);
+    if (!ok) return null;
+    if (base) await rememberBase(env, base);
+    cachedTarget = { base, binding, source };
+    cachedAt = Date.now();
+    return cachedTarget;
+  }
+
+  const binding = comfyBinding(env);
+  if (binding) {
+    const hit = await accept("", binding, "binding");
+    if (hit) return hit;
+  }
+  for (const base of envUrls(env)) {
+    const hit = await accept(base, null, "env");
+    if (hit) return hit;
+  }
+  for (const base of await readKvUrls(env)) {
+    const hit = await accept(base, null, "kv");
+    if (hit) return hit;
+  }
+  try {
+    const cached = env.SCORES ? await env.SCORES.get(KV_CACHE_KEY) : null;
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      const base = extractHttpsUrl(parsed && parsed.base);
+      if (base) {
+        const hit = await accept(base, null, "cache");
+        if (hit) return hit;
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  for (const base of await urlsFromCloudflare(env)) {
+    const hit = await accept(base, null, "cf");
+    if (hit) return hit;
+  }
+
+  cachedTarget = { base: "", binding: null, source: "missing" };
+  cachedAt = Date.now();
+  return cachedTarget;
+}
+
+export async function saveComfyUrl(env, raw) {
+  const base = extractHttpsUrl(raw);
+  if (!base) throw new Error("Need an https:// tunnel URL for local ComfyUI.");
+  const ok = await probeComfy(base, null);
+  cachedTarget = null;
+  cachedAt = 0;
+  if (env.SCORES) {
+    await env.SCORES.put(KV_URL_KEY, base);
+    await env.SCORES.put(KV_CACHE_KEY, JSON.stringify({ base, at: Date.now() }));
+  }
+  if (!ok) {
+    throw new Error(
+      "Saved the URL, but ComfyUI did not answer yet. Keep the home tunnel running and try again.",
+    );
+  }
+  cachedTarget = { base, binding: null, source: "kv" };
+  cachedAt = Date.now();
+  return base;
 }
 
 export async function comfyFetch(env, path, init = {}) {
-  const base = comfyBase(env);
-  if (!base) {
-    throw new Error("Fantasy backend unreachable. The home tunnel may be offline — restart it and try again.");
+  const target = await resolveComfyTarget(env);
+  if (!target.binding && !target.base) {
+    throw new Error(UNREACHABLE);
   }
-  const headers = new Headers(init.headers || {});
-  const response = await fetch(base + path, { ...init, headers });
-  return response;
+  return comfyRequest(target.base, target.binding, path, init);
 }
 
 export function sceneFromBody(body) {
@@ -166,8 +509,8 @@ export function buildPrompt(scene) {
     .join(", ");
 }
 
-export function buildWorkflow(env, scene, seed) {
-  const ckpt = env.COMFY_CHECKPOINT || "v1-5-pruned-emaonly.safetensors";
+export function buildWorkflow(env, scene, seed, ckptName) {
+  const ckpt = ckptName || env.COMFY_CHECKPOINT || "v1-5-pruned-emaonly.safetensors";
   const prompt = buildPrompt(scene);
   const negative =
     "low quality, blurry, extra fingers, deformed hands, watermark, text, logo, cartoon, ugly";
@@ -232,19 +575,50 @@ export async function loadJob(env, promptId) {
 
 export async function healthPayload(env) {
   const id = clientId(env);
-  let comfy = false;
   try {
-    const response = await comfyFetch(env, "/system_stats");
-    comfy = response.ok;
+    const target = await resolveComfyTarget(env);
+    if (!target.binding && !target.base) {
+      return { ok: true, comfy: false, client_id: id, configured: false };
+    }
+    const comfy = await probeComfy(target.base, target.binding);
+    return {
+      ok: true,
+      comfy,
+      client_id: id,
+      configured: true,
+    };
   } catch {
-    comfy = false;
+    return { ok: true, comfy: false, client_id: id, configured: false };
   }
-  return { ok: true, comfy, client_id: id };
 }
 
-export async function queuePrompt(env, scene) {
-  const seed = Math.floor(Math.random() * 0xffffffff);
-  const prompt = buildWorkflow(env, scene, seed);
+function errorFromComfy(data, fallback) {
+  if (!data) return fallback;
+  if (typeof data.error === "string" && data.error) return data.error;
+  if (data.error && typeof data.error === "object") {
+    return data.error.message || data.error.type || fallback;
+  }
+  if (typeof data.message === "string" && data.message) return data.message;
+  return fallback;
+}
+
+async function firstCheckpoint(env) {
+  try {
+    const response = await comfyFetch(env, "/object_info/CheckpointLoaderSimple");
+    if (!response.ok) return "";
+    const info = await response.json();
+    const list =
+      info?.CheckpointLoaderSimple?.input?.required?.ckpt_name?.[0] ||
+      info?.input?.required?.ckpt_name?.[0] ||
+      [];
+    return Array.isArray(list) && list[0] ? String(list[0]) : "";
+  } catch {
+    return "";
+  }
+}
+
+async function postPrompt(env, scene, seed, ckptName) {
+  const prompt = buildWorkflow(env, scene, seed, ckptName);
   const body = {
     prompt,
     client_id: clientId(env),
@@ -260,12 +634,23 @@ export async function queuePrompt(env, scene) {
   try {
     data = text ? JSON.parse(text) : {};
   } catch {
-    throw new Error(
-      "Fantasy backend unreachable. The home tunnel may be offline — restart it and try again.",
-    );
+    throw new Error(UNREACHABLE);
   }
+  return { response, data };
+}
+
+export async function queuePrompt(env, scene) {
+  const seed = Math.floor(Math.random() * 0xffffffff);
+  let { response, data } = await postPrompt(env, scene, seed);
   if (!response.ok) {
-    throw new Error(data.error || data.message || "Failed to queue");
+    const msg = errorFromComfy(data, "Failed to queue");
+    if (/ckpt|checkpoint/i.test(JSON.stringify(data))) {
+      const ckpt = await firstCheckpoint(env);
+      if (ckpt) {
+        ({ response, data } = await postPrompt(env, scene, seed, ckpt));
+      }
+    }
+    if (!response.ok) throw new Error(msg);
   }
   const promptId = data.prompt_id;
   if (!promptId) throw new Error("No job id returned from Fantasy Studio.");

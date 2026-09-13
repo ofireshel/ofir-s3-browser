@@ -35,7 +35,7 @@ export async function onRequestPost({ request, env }) {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to queue";
-    const status = /unreachable|offline|tunnel/i.test(message) ? 502 : 400;
+    const status = /unreachable|offline|tunnel/i.test(message) ? 409 : 400;
     return jsonResponse(request, { error: message }, status);
   }
 }
