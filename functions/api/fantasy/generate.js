@@ -2,8 +2,7 @@ import {
   guardOrigin,
   jsonResponse,
   optionsResponse,
-  queuePrompt,
-  sceneFromBody,
+  proxyJson,
 } from "../../_utils/fantasy.js";
 
 export async function onRequestOptions({ request }) {
@@ -19,23 +18,11 @@ export async function onRequestGet({ request }) {
 export async function onRequestPost({ request, env }) {
   const blocked = guardOrigin(request);
   if (blocked) return blocked;
-  let body = {};
-  try {
-    const text = await request.text();
-    body = text ? JSON.parse(text) : {};
-  } catch {
-    body = {};
-  }
-  try {
-    const scene = sceneFromBody(body);
-    const queued = await queuePrompt(env, scene);
-    return jsonResponse(request, {
-      prompt_id: queued.prompt_id,
-      client_id: queued.client_id,
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to queue";
-    const status = /unreachable|offline|tunnel/i.test(message) ? 409 : 400;
-    return jsonResponse(request, { error: message }, status);
-  }
+  const body = await request.text();
+  return proxyJson(request, env, "/api/generate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body,
+    timeoutMs: 30000,
+  });
 }

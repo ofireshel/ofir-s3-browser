@@ -2,7 +2,7 @@ import {
   guardOrigin,
   jsonResponse,
   optionsResponse,
-  progressPayload,
+  proxyJson,
 } from "../../_utils/fantasy.js";
 
 export async function onRequestOptions({ request }) {
@@ -12,13 +12,14 @@ export async function onRequestOptions({ request }) {
 export async function onRequestGet({ request, env }) {
   const blocked = guardOrigin(request);
   if (blocked) return blocked;
-  const promptId = new URL(request.url).searchParams.get("prompt_id") || "";
+  const url = new URL(request.url);
+  const promptId = url.searchParams.get("prompt_id") || "";
   if (!promptId) {
     return jsonResponse(request, { error: "prompt_id required" }, 400);
   }
-  try {
-    return jsonResponse(request, await progressPayload(env, promptId));
-  } catch (error) {
-    return jsonResponse(request, { error: error.message || "Progress check failed" }, 409);
-  }
+  return proxyJson(
+    request,
+    env,
+    `/api/progress?prompt_id=${encodeURIComponent(promptId)}`,
+  );
 }

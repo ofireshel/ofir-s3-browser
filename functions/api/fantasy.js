@@ -1,8 +1,8 @@
 import {
   guardOrigin,
-  healthPayload,
   jsonResponse,
   optionsResponse,
+  proxyJson,
 } from "../_utils/fantasy.js";
 
 export async function onRequestOptions({ request }) {
@@ -12,9 +12,11 @@ export async function onRequestOptions({ request }) {
 export async function onRequestGet({ request, env }) {
   const blocked = guardOrigin(request);
   if (blocked) return blocked;
-  try {
-    return jsonResponse(request, await healthPayload(env));
-  } catch (error) {
-    return jsonResponse(request, { ok: true, comfy: false, error: error.message }, 200);
-  }
+  return proxyJson(request, env, "/api/health");
+}
+
+export async function onRequestPost({ request }) {
+  const blocked = guardOrigin(request);
+  if (blocked) return blocked;
+  return jsonResponse(request, { error: "not found" }, 404);
 }
