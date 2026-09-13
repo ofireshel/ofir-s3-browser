@@ -92,37 +92,6 @@
     }
     .dot.ok { background: var(--ok); }
 
-    .tunnel-box {
-      display: none;
-      margin-top: 0.85rem;
-      padding: 0.85rem;
-      border: 1px dashed var(--line);
-      border-radius: 12px;
-      background: rgba(0,0,0,0.22);
-    }
-    .tunnel-box.show { display: block; }
-    .tunnel-box p {
-      margin: 0 0 0.55rem;
-      color: var(--muted);
-      font-size: 0.82rem;
-      line-height: 1.4;
-    }
-    .tunnel-box input {
-      width: 100%;
-      font: inherit;
-      color: var(--ink);
-      background: #0f0d0b;
-      border: 1px solid var(--line);
-      border-radius: 12px;
-      min-height: 2.6rem;
-      padding: 0.65rem 0.8rem;
-      margin-bottom: 0.55rem;
-    }
-    .tunnel-box button {
-      background: transparent;
-      border-color: var(--accent);
-    }
-
     .layout {
       display: grid;
       grid-template-columns: minmax(280px, 400px) 1fr;
@@ -552,11 +521,6 @@
         </div>
 
         <button id="generate" type="submit">Generate</button>
-        <div class="tunnel-box" id="tunnelBox">
-          <p>The site lost the home ComfyUI tunnel address after the last deploy. Paste the https URL from cloudflared (or your named tunnel) while Comfy is running.</p>
-          <input id="tunnelUrl" type="url" placeholder="https://your-tunnel.trycloudflare.com" autocomplete="off" />
-          <button id="tunnelSave" type="button">Connect local engine</button>
-        </div>
         <div class="error" id="error"></div>
       </form>
 
@@ -591,9 +555,6 @@
     const stage = $("stage");
     const healthDot = $("healthDot");
     const healthText = $("healthText");
-    const tunnelBox = $("tunnelBox");
-    const tunnelUrl = $("tunnelUrl");
-    const tunnelSave = $("tunnelSave");
     function showError(msg) {
       errorEl.textContent = msg || "";
       errorEl.classList.toggle("show", !!msg);
@@ -622,13 +583,9 @@
         if (data.comfy) {
           healthDot.classList.add("ok");
           healthText.textContent = "Ready";
-          tunnelBox.classList.remove("show");
         } else {
           healthDot.classList.remove("ok");
-          healthText.textContent = data.configured ? "Engine offline" : "Tunnel not linked";
-          tunnelBox.classList.add("show");
-          const saved = localStorage.getItem("fantasy_comfy_url");
-          if (saved && !tunnelUrl.value) tunnelUrl.value = saved;
+          healthText.textContent = "Engine offline";
         }
       } catch {
         healthDot.classList.remove("ok");
@@ -667,35 +624,6 @@
         await new Promise((r) => setTimeout(r, 450));
       }
     }
-
-    async function connectTunnel() {
-      showError("");
-      const url = (tunnelUrl.value || "").trim();
-      if (!url) {
-        showError("Paste the https tunnel URL that forwards to local ComfyUI.");
-        return;
-      }
-      tunnelSave.disabled = true;
-      try {
-        const res = await fetch("/api/fantasy/connect", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ url }),
-        });
-        const data = await res.json();
-        if (!res.ok || !data.comfy) throw new Error(data.error || "Could not reach ComfyUI");
-        localStorage.setItem("fantasy_comfy_url", url);
-        healthDot.classList.add("ok");
-        healthText.textContent = "Ready";
-        tunnelBox.classList.remove("show");
-      } catch (err) {
-        showError(err.message || String(err));
-      } finally {
-        tunnelSave.disabled = false;
-      }
-    }
-
-    tunnelSave.addEventListener("click", connectTunnel);
 
     form.addEventListener("submit", async (e) => {
       e.preventDefault();

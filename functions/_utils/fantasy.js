@@ -32,12 +32,27 @@ export function jsonResponse(request, body, status = 200) {
   });
 }
 
+function requestHost(request) {
+  try {
+    return new URL(request.url).hostname;
+  } catch {
+    return "";
+  }
+}
+
+function isPublicHost(host) {
+  return host === "33games.win" || host === "www.33games.win";
+}
+
 export function guardOrigin(request) {
   const origin = request.headers.get("Origin");
-  if (!origin || !ALLOWED_ORIGINS.has(origin)) {
+  if (origin) {
+    if (ALLOWED_ORIGINS.has(origin)) return null;
     return jsonResponse(request, { error: "forbidden" }, 403);
   }
-  return null;
+  // Same-site fetch from the public pages often omits Origin.
+  if (isPublicHost(requestHost(request))) return null;
+  return jsonResponse(request, { error: "forbidden" }, 403);
 }
 
 function abortAfter(ms) {
