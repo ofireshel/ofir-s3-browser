@@ -8,6 +8,12 @@ USE_OPENAI = "true"
 VISION_MODEL_ID = "@cf/llava/llava-1.5-7b-hf"
 PREFER_REST = "true"
 MORAL_MODEL_ID = "gpt-5-mini"
+# Stable client id used by live Fantasy Studio
+COMFY_CLIENT_ID = "28997e47-ce99-4d95-b4b3-c0deac845ab8"
+# Set the live ComfyUI tunnel as a Pages secret (not committed):
+#   npx wrangler pages secret put COMFY_URL --project-name lexiorbit
+# Optional overrides:
+# COMFY_CHECKPOINT = "v1-5-pruned-emaonly.safetensors"
 
 
 # Bind Workers AI to Pages Functions

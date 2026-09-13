@@ -1,5 +1,9 @@
 # ofir-s3-browser
 
+Source for **https://33games.win** (Cloudflare Pages project `lexiorbit`).
+
+This tree is synced from the live site, including `/fantasy-studio` and the `/api/fantasy/*` ComfyUI proxy. Future deploys from `main` should match production pages. Keep the existing Pages secrets (`OPENAI_API_KEY`, `COMFY_URL`, and any `CF_*` tokens) — those values are not in git.
+
 ## Deploy to Cloudflare Pages (production)
 
 Use the existing Pages project `lexiorbit`:
@@ -8,8 +12,15 @@ Use the existing Pages project `lexiorbit`:
 npx --yes wrangler@latest pages deploy . --project-name lexiorbit --branch main --commit-dirty=true
 ```
 
+Fantasy Studio talks to a home ComfyUI tunnel. After a fresh project (or if health shows "Engine offline"):
+
+```bash
+npx wrangler pages secret put COMFY_URL --project-name lexiorbit
+```
+
 - Requires Node.js and npm.
 - Uses the current working directory as the build output (`wrangler.toml` sets `pages_build_output_dir = "."`).
+- Poker multiplayer still uses the separate worker `poker-multiplayer.xiachen.workers.dev` (`wrangler-worker.toml`).
 
 ## Sync to GitHub (main branch)
 
