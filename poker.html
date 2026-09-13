@@ -19,16 +19,16 @@
     header .spacer { flex:1; }
     header a { color:var(--muted); text-decoration:none; padding:6px 10px; border:1px solid #475569; border-radius:8px; }
     #stage { position:relative; padding: 10px; }
-    #table { width:100%; height: min(78vh, 780px); display:block; border-radius: 14px; background: radial-gradient(120% 120% at 50% 35%, var(--felt1) 0%, var(--felt2) 70%, var(--felt3) 100%); border: 1px solid #065f46; box-shadow: 0 12px 40px rgba(0,0,0,0.35) inset; }
+    #table { width:100%; height: min(78vh, 780px); display:block; border-radius: 14px; background: radial-gradient(120% 120% at 50% 35%, var(--felt1) 0%, var(--felt2) 70%, var(--felt3) 100%); border: 1px solid #065f46; box-shadow: 0 18px 48px rgba(0,0,0,0.45), 0 6px 16px rgba(0,0,0,0.3), inset 0 12px 40px rgba(0,0,0,0.35); }
     #glLayer { position:absolute; inset:10px 10px 70px 10px; border-radius:14px; overflow:hidden; pointer-events:none; }
     #glLayer canvas { width:100% !important; height:100% !important; display:block; }
     #hud { position:absolute; left:12px; right:12px; bottom:12px; display:flex; gap:10px; align-items:center; justify-content:center; flex-wrap:wrap; pointer-events:auto; }
-    .btn { padding:10px 14px; border-radius:10px; border:2px solid #475569; background:linear-gradient(135deg,#1e293b,#334155); color:var(--text); font-weight:800; cursor:pointer; min-width:84px; }
+    .btn { padding:10px 14px; border-radius:10px; border:2px solid #475569; background:linear-gradient(135deg,#1e293b,#334155); color:var(--text); font-weight:800; cursor:pointer; min-width:84px; box-shadow: 0 6px 14px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.08); }
     .btn:hover { border-color:var(--accent); transform: translateY(-1px); }
     .btn:disabled { opacity:0.4; cursor:not-allowed; }
-    .panel { display:flex; align-items:center; gap:8px; padding:8px 10px; border-radius:10px; background:rgba(2,6,23,0.7); border:1px solid #334155; }
+    .panel { display:flex; align-items:center; gap:8px; padding:8px 10px; border-radius:10px; background:rgba(2,6,23,0.7); border:1px solid #334155; box-shadow: 0 8px 20px rgba(0,0,0,0.35); }
     .amt { width:88px; padding:8px 10px; border-radius:10px; border:2px solid #475569; background:#0b1220; color:var(--text); font-weight:700; }
-    .chip { padding:4px 10px; border-radius:999px; border:1px solid #334155; background:rgba(15,23,42,.6); color:#cbd5e1; }
+    .chip { padding:4px 10px; border-radius:999px; border:1px solid #334155; background:rgba(15,23,42,.6); color:#cbd5e1; box-shadow: 0 3px 8px rgba(0,0,0,0.3); }
     #log { position:absolute; left:50%; transform:translateX(-50%); top:12px; padding:6px 10px; border-radius:10px; background:rgba(2,6,23,0.7); border:1px solid #334155; color:#e2e8f0; font-weight:700; }
     #connectingOverlay { position:absolute; inset:0; display:none; align-items:center; justify-content:center; background:rgba(2,6,23,0.85); z-index:25; }
     #connectingOverlay .box { padding:16px 18px; border-radius:12px; background:rgba(15,23,42,0.95); border:1px solid #475569; color:#e2e8f0; font-weight:800; text-align:center; box-shadow: 0 10px 40px rgba(0,0,0,0.45); }
@@ -39,15 +39,63 @@
     .result .res-btn:hover { border-color:#60a5fa; transform: translateY(-1px); }
       @media (max-width:768px) {
       .amt { width:72px; }
-      #table { height: min(68vh, 640px); }
+      #table { height: min(62vh, 640px); }
+      header h1 { font-size:17px; }
     }
     @media (max-width:430px) {
-      #table { height: min(70svh, 640px); }
-      #glLayer { inset: 8px 8px 72px 8px; }
-      #hud { display:grid; grid-template-columns: 1fr 1fr; gap:8px; justify-content:stretch; }
-      #hud .panel { grid-column: 1 / -1; }
-      .btn { min-width:68px; padding:9px 12px; }
-      .amt { width:64px; }
+      header { gap:8px; padding: calc(8px + env(safe-area-inset-top)) 10px 8px; }
+      header h1 { font-size:15px; max-width:46vw; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+      header a { padding:5px 8px; font-size:13px; }
+      #stage {
+        display:flex;
+        flex-direction:column;
+        gap:8px;
+        padding:8px;
+        padding-bottom: calc(8px + env(safe-area-inset-bottom));
+        box-sizing:border-box;
+        min-height: calc(100dvh - 52px - env(safe-area-inset-top));
+      }
+      #table {
+        flex:1 1 auto;
+        width:100%;
+        height: min(56dvh, 520px) !important;
+        min-height:280px;
+        max-height:none;
+        box-shadow:
+          0 16px 36px rgba(0,0,0,0.55),
+          0 4px 12px rgba(0,0,0,0.35),
+          inset 0 10px 28px rgba(0,0,0,0.4);
+      }
+      #glLayer {
+        position:absolute;
+        left:8px; right:8px; top:8px;
+        height: min(56dvh, 520px);
+        bottom:auto;
+        border-radius:14px;
+      }
+      #hud {
+        position:static;
+        left:auto; right:auto; bottom:auto;
+        width:100%;
+        display:grid;
+        grid-template-columns: 1fr 1fr;
+        gap:8px;
+        justify-content:stretch;
+        padding:10px;
+        border-radius:14px;
+        background:rgba(2,6,23,0.82);
+        border:1px solid #334155;
+        box-shadow: 0 10px 28px rgba(0,0,0,0.45);
+        box-sizing:border-box;
+      }
+      #hud .panel {
+        grid-column: 1 / -1;
+        flex-wrap:wrap;
+        justify-content:center;
+      }
+      .btn { min-width:0; width:100%; padding:10px 12px; box-shadow: 0 5px 12px rgba(0,0,0,0.4); }
+      .amt { width:56px; }
+      .result { width: min(92vw, 360px); box-sizing:border-box; }
     }
   </style>
 </head>
@@ -58,7 +106,7 @@
       <h1>Heads-Up Poker</h1>
       <span id="blinds" class="chip">Blinds: 1/2</span>
       <span class="spacer"></span>
-      <a href="https://production.lexiorbit.pages.dev/games.html">All Games</a>
+      <a href="games.html">All Games</a>
     </header>
     <div id="stage">
       <canvas id="table"></canvas>
@@ -228,6 +276,17 @@
         const w = Math.min(window.innerWidth||0, document.documentElement.clientWidth||1);
         return w > 0 && w <= 430;
       }catch{ return false; }
+    }
+    function cardScale(){
+      if (!isSmallScreen()) return 1;
+      const wCss = (canvas.width / Math.max(DPR, 0.01)) || window.innerWidth || 390;
+      if (wCss <= 350) return 0.7;
+      if (wCss <= 390) return 0.78;
+      return 0.84;
+    }
+    function clampX(x, halfW){
+      const pad = 12 * DPR;
+      return Math.max(pad + halfW, Math.min(canvas.width - pad - halfW, x));
     }
     window.addEventListener('resize', resize);
     // Player handle
@@ -468,12 +527,19 @@
     }
     function drawChipDisc(px, py, color){
       ctx.save();
+      // soft drop shadow under chip
+      ctx.shadowColor = 'rgba(0,0,0,0.5)';
+      ctx.shadowBlur = 10*DPR;
+      ctx.shadowOffsetY = 4*DPR;
       // base with subtle 3D shading
       const grad = ctx.createRadialGradient(px - 6*DPR, py - 4*DPR, 2*DPR, px, py, 16*DPR);
       grad.addColorStop(0, '#ffffff18');
       grad.addColorStop(1, '#00000025');
       ctx.beginPath(); ctx.ellipse(px, py, 16*DPR, 6.5*DPR, 0, 0, Math.PI*2);
       ctx.fillStyle = color; ctx.fill();
+      ctx.shadowColor = 'transparent';
+      ctx.shadowBlur = 0;
+      ctx.shadowOffsetY = 0;
       ctx.strokeStyle='#0b0f18'; ctx.lineWidth=1.2*DPR; ctx.stroke();
       // inner ring
       ctx.beginPath(); ctx.ellipse(px, py, 12*DPR, 4.8*DPR, 0, 0, Math.PI*2);
@@ -488,7 +554,7 @@
       // glossy highlight
       ctx.beginPath(); ctx.ellipse(px - 5*DPR, py - 3.5*DPR, 6*DPR, 2.2*DPR, -0.3, 0, Math.PI*2); ctx.fillStyle='rgba(255,255,255,0.18)'; ctx.fill();
       // ambient shadow
-      ctx.beginPath(); ctx.ellipse(px + 2*DPR, py + 3.3*DPR, 14*DPR, 2*DPR, 0, 0, Math.PI*2); ctx.fillStyle='rgba(0,0,0,0.18)'; ctx.fill();
+      ctx.beginPath(); ctx.ellipse(px + 2*DPR, py + 3.3*DPR, 14*DPR, 2*DPR, 0, 0, Math.PI*2); ctx.fillStyle='rgba(0,0,0,0.22)'; ctx.fill();
       ctx.restore();
     }
     function drawChipColumn(px, py, color, count){
@@ -496,28 +562,43 @@
     }
 function drawChipBank(anchorX, anchorY, amount, labelY){
       const cols = buildChipColumns(amount);
-      const step = (isSmallScreen()? 18:24)*DPR; // horizontal spacing
-      const totalWidth = Math.max(1, cols.length) * step;
-      let x = anchorX; // start near cards and move leftwards
-      const bankYOffset = (isSmallScreen()? 16:18) * DPR;
-      for(let i=0;i<cols.length;i++){
-        const c = cols[i]; drawChipColumn(x, anchorY + bankYOffset, c.color, c.count); x -= step;
+      const step = (isSmallScreen()? 16:24)*DPR; // horizontal spacing
+      const minX = 16*DPR;
+      const maxCols = isSmallScreen() ? Math.min(cols.length, 5) : cols.length;
+      const useCols = cols.slice(0, maxCols);
+      // Keep chip stacks on-screen: shift right if they would spill left
+      let startX = anchorX;
+      const leftMost = anchorX - Math.max(0, useCols.length - 1) * step;
+      if (leftMost < minX) startX = anchorX + (minX - leftMost);
+      let x = startX;
+      const bankYOffset = (isSmallScreen()? 14:18) * DPR;
+      for(let i=0;i<useCols.length;i++){
+        const c = useCols[i]; drawChipColumn(x, anchorY + bankYOffset, c.color, c.count); x -= step;
       }
       // label centered above the chip bank
-      const centerX = anchorX - ((cols.length-1)*step)/2;
-      const labelPosY = (typeof labelY === 'number') ? labelY : (anchorY - (isSmallScreen()? 30:14)*DPR);
-      ctx.save(); ctx.fillStyle='#e2e8f0'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.font = `${(isSmallScreen()?20:18)*DPR}px Arial Black`; ctx.fillText(String(amount), centerX, labelPosY); ctx.restore();
+      const centerX = startX - ((useCols.length-1)*step)/2;
+      const labelPosY = (typeof labelY === 'number') ? labelY : (anchorY - (isSmallScreen()? 28:14)*DPR);
+      ctx.save();
+      ctx.shadowColor = 'rgba(0,0,0,0.65)';
+      ctx.shadowBlur = 6*DPR;
+      ctx.shadowOffsetY = 2*DPR;
+      ctx.fillStyle='#e2e8f0'; ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.font = `${(isSmallScreen()?18:18)*DPR}px Arial Black`;
+      ctx.fillText(String(amount), centerX, labelPosY);
+      ctx.restore();
     }
 
     // Large bet indicator to the right of hole cards
 function drawBetIndicator(anchorX, anchorY, amount, labelY){
       if(!amount || amount<=0) return;
-      let x = anchorX + (isSmallScreen()? 84:190)*DPR;
-      const bankYOffset = (isSmallScreen()? 16:18) * DPR;
+      let x = anchorX + (isSmallScreen()? 62:190)*DPR;
+      const bankYOffset = (isSmallScreen()? 14:18) * DPR;
       const y = anchorY + bankYOffset;
       // clamp to screen
-      const maxX = canvas.width - 16*DPR;
+      const maxX = canvas.width - 18*DPR;
+      const minX = 18*DPR;
       if(x > maxX) x = maxX;
+      if(x < minX) x = minX;
       // draw a short, prominent stack
       const sample = Math.min(6, Math.max(3, Math.round(Math.log10(amount+1))+2));
       const palette = [CHIP_COLORS[25], CHIP_COLORS[100], CHIP_COLORS[5], CHIP_COLORS[500]].filter(Boolean);
@@ -526,11 +607,16 @@ function drawBetIndicator(anchorX, anchorY, amount, labelY){
         drawChipDisc(x + (i%2)*4*DPR, y - i*4*DPR, col);
       }
       // big amount text centered above the mini stack
-      const textY = (typeof labelY === 'number') ? labelY : (y - (isSmallScreen()? 28:16)*DPR);
+      const textY = (typeof labelY === 'number') ? labelY : (y - (isSmallScreen()? 26:16)*DPR);
       // Center label over the mini stack (nudge slightly left)
       const stackCenterX = x + 2*DPR;
-      const textX = Math.min(stackCenterX, canvas.width - 16*DPR);
-      ctx.save(); ctx.fillStyle='#f8fafc'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.font = `${(isSmallScreen()?22:22)*DPR}px Arial Black`;
+      const textX = Math.min(Math.max(stackCenterX, 18*DPR), canvas.width - 18*DPR);
+      ctx.save();
+      ctx.shadowColor = 'rgba(0,0,0,0.7)';
+      ctx.shadowBlur = 6*DPR;
+      ctx.shadowOffsetY = 2*DPR;
+      ctx.fillStyle='#f8fafc'; ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.font = `${(isSmallScreen()?20:22)*DPR}px Arial Black`;
       ctx.fillText(String(amount), textX, textY);
       ctx.restore();
     }
@@ -547,11 +633,17 @@ function drawBetIndicator(anchorX, anchorY, amount, labelY){
     }
     const SUIT_EMO = ['♠','♥','♦','♣'];
     function drawCard(x,y,card,faceUp=true){
-      const sc = isSmallScreen()? 0.9 : 1;
-      const w=81*DPR*sc, h=116*DPR*sc, r=12*DPR*sc; ctx.save(); ctx.translate(x,y); ctx.shadowColor='rgba(0,0,0,0.4)'; ctx.shadowBlur=(isSmallScreen()? 7:11)*DPR*sc; roundedRect(-w/2,-h/2,w,h,r);
+      const sc = cardScale();
+      const w=81*DPR*sc, h=116*DPR*sc, r=12*DPR*sc; ctx.save(); ctx.translate(x,y);
+      ctx.shadowColor='rgba(0,0,0,0.55)';
+      ctx.shadowBlur=(isSmallScreen()? 12:14)*DPR*sc;
+      ctx.shadowOffsetY=(isSmallScreen()? 5:6)*DPR*sc;
+      roundedRect(-w/2,-h/2,w,h,r);
       if(faceUp){
         // classic card face
-        ctx.fillStyle='#ffffff'; ctx.strokeStyle='#b6c2cf'; ctx.lineWidth=2.2*DPR*sc; ctx.fill(); ctx.stroke();
+        ctx.fillStyle='#ffffff'; ctx.strokeStyle='#b6c2cf'; ctx.lineWidth=2.2*DPR*sc; ctx.fill();
+        ctx.shadowColor='transparent'; ctx.shadowBlur=0; ctx.shadowOffsetY=0;
+        ctx.stroke();
         // subtle inner border
         roundedRect(-w/2+4*DPR*sc,-h/2+4*DPR*sc,w-8*DPR*sc,h-8*DPR*sc,r*0.8); ctx.strokeStyle='#e2e8f0'; ctx.lineWidth=1.2*DPR*sc; ctx.stroke();
         // corners and center pip
@@ -561,7 +653,9 @@ function drawBetIndicator(anchorX, anchorY, amount, labelY){
         ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.font = `${49*DPR*sc}px Segoe UI Emoji`; ctx.fillText(SUIT_EMO[card.s], 0, 10*DPR*sc);
       } else {
         // classic blue back with bordered lattice pattern
-        ctx.fillStyle='#114b8b'; ctx.strokeStyle='#0b3561'; ctx.lineWidth=2.4*DPR*sc; ctx.fill(); ctx.stroke();
+        ctx.fillStyle='#114b8b'; ctx.strokeStyle='#0b3561'; ctx.lineWidth=2.4*DPR*sc; ctx.fill();
+        ctx.shadowColor='transparent'; ctx.shadowBlur=0; ctx.shadowOffsetY=0;
+        ctx.stroke();
         // bordered lattice
         ctx.save();
         roundedRect(-w/2+8*DPR*sc,-h/2+8*DPR*sc,w-16*DPR*sc,h-16*DPR*sc,r*0.5); ctx.strokeStyle='#e5e7eb'; ctx.lineWidth=1.6*DPR*sc; ctx.stroke();
@@ -576,7 +670,7 @@ function drawBetIndicator(anchorX, anchorY, amount, labelY){
     // WebGL fly card using PixiJS for ultra smooth animation
     function flyCard(from, to, card, faceUp, durMs, onDone){
       try{
-        const sc = isSmallScreen()? 0.9 : 1;
+        const sc = cardScale();
         const texture = getCardTexture(card, !!faceUp, sc) || null;
         const sprite = texture ? getPooledSprite(texture) : new PIXI.Container();
         // map logical coords to pixi coords
@@ -603,18 +697,42 @@ function drawBetIndicator(anchorX, anchorY, amount, labelY){
     }
     function roundedRect(x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
 function positions(){
-      const w=canvas.width, h=canvas.height; const cx=w/2, cy=h/2; const boardY = cy + (isSmallScreen()? 10:-14)*DPR; const gap = (isSmallScreen()? 74 : 96)*DPR;
+      const w=canvas.width, h=canvas.height;
+      const cx=w/2, cy=h/2;
+      const small = isSmallScreen();
+      const sc = cardScale();
+      const cardHalfW = (81 * sc * DPR) / 2;
+      const margin = 14 * DPR;
+      // Fit 5 board cards inside the canvas width
+      const maxHalfSpan = Math.max(cardHalfW, w/2 - margin - cardHalfW);
+      const gap = Math.min(small ? 68*DPR : 96*DPR, maxHalfSpan / 2);
+      const holeSpread = Math.min(42*DPR, Math.max(28*DPR, w * 0.1));
+      const boardY = cy + (small ? 4*DPR : -14*DPR);
+      const humanY = h - (small ? 92*DPR : 130*DPR);
+      const aiY = small ? 92*DPR : 130*DPR;
+      const humanLX = clampX(cx - holeSpread, cardHalfW);
+      const humanRX = clampX(cx + holeSpread, cardHalfW);
+      const aiLX = clampX(cx - holeSpread, cardHalfW);
+      const aiRX = clampX(cx + holeSpread, cardHalfW);
       return {
         board: [
-          [cx-2*gap, boardY],
-          [cx-gap,   boardY],
-          [cx,       boardY],
-          [cx+gap,   boardY],
-          [cx+2*gap, boardY]
+          [clampX(cx-2*gap, cardHalfW), boardY],
+          [clampX(cx-gap, cardHalfW), boardY],
+          [cx, boardY],
+          [clampX(cx+gap, cardHalfW), boardY],
+          [clampX(cx+2*gap, cardHalfW), boardY]
         ],
-        pot: [cx, cy - (isSmallScreen()? 10:56)*DPR],
-        human: { name:[cx, h-(isSmallScreen()? 16:28)*DPR], cards:[cx-45*DPR, h-(isSmallScreen()? 120:130)*DPR, cx+45*DPR, h-(isSmallScreen()? 120:130)*DPR], chips:[cx+150*DPR, h-(isSmallScreen()? 122:135)*DPR] },
-        ai:    { name:[cx, (isSmallScreen()? 14:22)*DPR],   cards:[cx-45*DPR, (isSmallScreen()? 118:130)*DPR,    cx+45*DPR, (isSmallScreen()? 118:130)*DPR],    chips:[cx+180*DPR, (isSmallScreen()? 46:60)*DPR] }
+        pot: [cx, cy - (small ? 18*DPR : 56*DPR)],
+        human: {
+          name:[cx, h-(small ? 18*DPR : 28*DPR)],
+          cards:[humanLX, humanY, humanRX, humanY],
+          chips:[cx+150*DPR, humanY]
+        },
+        ai: {
+          name:[cx, (small ? 16:22)*DPR],
+          cards:[aiLX, aiY, aiRX, aiY],
+          chips:[cx+180*DPR, aiY]
+        }
       };
     }
     function draw(){
@@ -651,12 +769,12 @@ function positions(){
         const myId = getMyId();
         const opponentId = 1 - myId;
         // Show my stack in human position, opponent stack in AI position
-        drawChipBank(p.human.cards[0] - (isSmallScreen()? 64:110)*DPR, p.human.cards[1], state.players[myId].stack, alignYHuman);
-        drawChipBank(p.ai.cards[0] - (isSmallScreen()? 70:120)*DPR, p.ai.cards[1], state.players[opponentId].stack, alignYAI);
+        drawChipBank(p.human.cards[0] - (isSmallScreen()? 52:110)*DPR, p.human.cards[1], state.players[myId].stack, alignYHuman);
+        drawChipBank(p.ai.cards[0] - (isSmallScreen()? 52:120)*DPR, p.ai.cards[1], state.players[opponentId].stack, alignYAI);
       } else {
         // Single player mode: original logic
-        drawChipBank(p.human.cards[0] - (isSmallScreen()? 64:110)*DPR, p.human.cards[1], state.players[0].stack, alignYHuman);
-        drawChipBank(p.ai.cards[0] - (isSmallScreen()? 70:120)*DPR, p.ai.cards[1], state.players[1].stack, alignYAI);
+        drawChipBank(p.human.cards[0] - (isSmallScreen()? 52:110)*DPR, p.human.cards[1], state.players[0].stack, alignYHuman);
+        drawChipBank(p.ai.cards[0] - (isSmallScreen()? 52:120)*DPR, p.ai.cards[1], state.players[1].stack, alignYAI);
       }
       // Dealer button next to the actual dealer's name from server state; align with perspective
       if (isMultiplayer) {
@@ -670,7 +788,12 @@ function positions(){
         const dpos = [dn[0]-(isSmallScreen()? 78:62)*DPR, dn[1]];
         drawDealerButton(dpos[0], dpos[1]);
       }
+      ctx.save();
+      ctx.shadowColor = 'rgba(0,0,0,0.65)';
+      ctx.shadowBlur = 8*DPR;
+      ctx.shadowOffsetY = 2*DPR;
       ctx.fillStyle='#fbbf24'; ctx.font = `${18*DPR}px Arial Black`; ctx.fillText(`Pot: ${state.pot}`, p.pot[0], p.pot[1]);
+      ctx.restore();
       for(let i=0;i<5;i++){
         const [x,y]=p.board[i]; const c=state.board[i];
         const show = !!c && (i < state.revealed.board);
@@ -789,10 +912,20 @@ function positions(){
       state.overlayShown = false;
       state.handAdvanced = false;
       state.animating = true;
+      state.moving = null;
+      state.glAnimating = false;
       updateControls();
-      state.animating=true; draw();
-      // Ensure canvas has dimensions before animation
-      if(canvas.width<10 || canvas.height<10){ setTimeout(startDealAnimation, 50); } else { startDealAnimation(); }
+      // Always reflow canvas before dealing — mobile flex layout can leave 0x0 after overlays
+      const beginDeal = ()=>{
+        try { resize(); } catch {}
+        draw();
+        if(canvas.width < 10 || canvas.height < 10){
+          setTimeout(()=>{ try{ resize(); }catch{} startDealAnimation(); }, 80);
+        } else {
+          startDealAnimation();
+        }
+      };
+      requestAnimationFrame(beginDeal);
     }
     function postBlind(pid, amt){ const p=state.players[pid]; const pay=Math.min(amt, p.stack); p.stack-=pay; state.betThisRound[pid]+=pay; state.pot+=pay; state.curBet=Math.max(state.curBet, state.betThisRound[pid]); }
     function minRaise(){ const highest=Math.max(state.betThisRound[0], state.betThisRound[1]); const other=Math.min(state.betThisRound[0], state.betThisRound[1]); const lastRaise=Math.max(BIG_BLIND, highest-other); return highest + lastRaise; }
@@ -923,7 +1056,7 @@ function positions(){
         }
         const item = queue.shift();
         if(pixiApp){
-          getCardTexture(item.card, true, isSmallScreen()?0.9:1);
+          getCardTexture(item.card, true, cardScale());
           flyCard(deckPos, item.to, item.card, true, 110, ()=>{
             state.revealed.board = Math.max(state.revealed.board, item.idx+1);
             animateNext();
@@ -942,8 +1075,13 @@ function positions(){
 
     // Dealing animation (hole cards only; preflop betting before flop)
     function startDealAnimation(){
+      try { if(canvas.width < 10 || canvas.height < 10) resize(); } catch {}
       const p=positions();
-      const deckPos = { x: canvas.width/2 + 220*DPR, y: canvas.height/2 - 40*DPR };
+      // Keep deal origin on-canvas (old +220*DPR flew off mobile screens)
+      const deckPos = {
+        x: Math.min(canvas.width - 24*DPR, canvas.width/2 + (isSmallScreen()? 40:220)*DPR),
+        y: Math.max(24*DPR, canvas.height/2 - 40*DPR),
+      };
       const seq = [
         { who:'human', idx:0, to:{x:p.human.cards[0], y:p.human.cards[1]}, faceUp:true },
         { who:'ai',    idx:0, to:{x:p.ai.cards[0],    y:p.ai.cards[1]},    faceUp:false },
@@ -952,47 +1090,58 @@ function positions(){
       ];
       let i=0;
       let progressed=false;
+      const finishDeal = ()=>{
+        state.revealed.human = 2;
+        state.revealed.ai = 2;
+        state.animating=false; state.glAnimating=false; state.moving=null;
+        updateControls();
+        draw();
+        if(!maybeAutoRunout()) maybeAIMove();
+      };
       function step(){
         if(i>=seq.length){
-          // Finish dealing hole cards; remain in preflop for betting
-          state.animating=false; state.glAnimating=false;
-          updateControls();
-          draw();
-          if(!maybeAutoRunout()) maybeAIMove();
+          finishDeal();
           return;
         }
         const s=seq[i++];
-        // Ensure target card exists in state (for board we push on reveal)
         if(s.who==='board' && state.board.length<=s.idx){ state.board.push(state.deck.pop()); }
         const card = s.who==='human' ? state.players[0].hole[s.idx] : s.who==='ai' ? state.players[1].hole[s.idx] : state.board[s.idx];
-        // WebGL sprite for the card fly animation (fallbacks to canvas if WebGL missing)
+        if(!card){
+          if(s.who==='human') state.revealed.human = Math.max(state.revealed.human, s.idx+1);
+          else if(s.who==='ai') state.revealed.ai = Math.max(state.revealed.ai, s.idx+1);
+          progressed=true;
+          setTimeout(step, 10);
+          return;
+        }
+        const afterFly = ()=>{
+          if(s.who==='human'){ state.revealed.human = Math.max(state.revealed.human, s.idx+1); }
+          else if(s.who==='ai'){ state.revealed.ai = Math.max(state.revealed.ai, s.idx+1); }
+          else { state.revealed.board = Math.max(state.revealed.board, s.idx+1); }
+          progressed=true;
+          state.glAnimating=false;
+          draw();
+          setTimeout(step, 10);
+        };
         if(pixiApp){
           state.glAnimating = true;
-          getCardTexture(card, !!s.faceUp, isSmallScreen()?0.9:1);
-          flyCard(deckPos, s.to, card, s.faceUp, 120, ()=>{
-            if(s.who==='human'){ state.revealed.human = Math.max(state.revealed.human, s.idx+1); }
-            else if(s.who==='ai'){ state.revealed.ai = Math.max(state.revealed.ai, s.idx+1); }
-            else { state.revealed.board = Math.max(state.revealed.board, s.idx+1); }
-            progressed=true; setTimeout(()=>{ state.glAnimating=false; draw(); setTimeout(step, 10); }, 0);
-          });
+          try {
+            getCardTexture(card, !!s.faceUp, cardScale());
+            flyCard(deckPos, s.to, card, s.faceUp, 120, afterFly);
+          } catch {
+            afterFly();
+          }
         } else {
-          state.moving = { from: deckPos, to: s.to, start: performance.now(), dur: 160, card, faceUp: s.faceUp, onDone: ()=>{
-            if(s.who==='human'){ state.revealed.human = Math.max(state.revealed.human, s.idx+1); }
-            else if(s.who==='ai'){ state.revealed.ai = Math.max(state.revealed.ai, s.idx+1); }
-            else { state.revealed.board = Math.max(state.revealed.board, s.idx+1); }
-            progressed=true; draw(); setTimeout(step, 10);
-          }};
+          state.moving = { from: deckPos, to: s.to, start: performance.now(), dur: 160, card, faceUp: s.faceUp, onDone: afterFly };
           requestAnimationFrame(draw);
         }
       }
       step();
-      // Watchdog: force reveal if animation fails
+      // Watchdog: force reveal if animation stalls
       setTimeout(()=>{
-        if(!progressed){
-          state.revealed.human=2; state.revealed.ai=2; // show both hole card backs
-          state.animating=false; draw(); updateControls(); if(!maybeAutoRunout()) maybeAIMove();
+        if(state.revealed.human < 2 || state.revealed.ai < 2){
+          finishDeal();
         }
-      }, 1200);
+      }, 1600);
     }
     function doShowdown(){
       if (state.overlayShown) { updateControls(); draw(); return; }
@@ -1050,7 +1199,17 @@ function positions(){
       };
       const btn=document.getElementById(contId); if(btn) btn.onclick=proceed;
       const replay=document.getElementById('res-replay');
-      if(replay){ replay.onclick=()=>{ if(isMultiplayer){ try{ sendAction('play_again'); }catch{} } resultEl.style.display='none'; } }
+      if(replay){ replay.onclick=()=>{
+        if(isMultiplayer){ try{ sendAction('play_again'); }catch{} resultEl.style.display='none'; return; }
+        resultEl.style.display='none';
+        state.players[0].stack = START_STACK;
+        state.players[1].stack = START_STACK;
+        state.gameOver = false;
+        state.gameOverWinner = null;
+        state.overlayShown = false;
+        try { resize(); } catch {}
+        resetHand();
+      }; }
       setTimeout(()=>{ if(!state.gameOver && btn) proceed(); }, 5000);
       // Safety: ensure progression even if overlay click is missed
       if(isMultiplayer){ /* server advances next hand */ }
@@ -1825,6 +1984,11 @@ function positions(){
     if (!isMultiplayer) {
       resetHand();
     }
+    // Recover after returning via browser back/bfcache or tab focus
+    window.addEventListener('pageshow', ()=>{ try{ resize(); draw(); }catch{} });
+    document.addEventListener('visibilitychange', ()=>{
+      if(!document.hidden){ try{ resize(); draw(); }catch{} }
+    });
     // Expose debug helpers for console inspection
     try{
       window.poker = {

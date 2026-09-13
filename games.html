@@ -59,6 +59,18 @@
     .p1 .cta{ background: var(--c3); }
     .p2 .cta{ background: var(--c4); }
     .p3 .cta{ background: var(--c2); }
+    .panel.thumb{
+      background:
+        linear-gradient(180deg, rgba(10,10,10,.15), rgba(10,10,10,.55)),
+        linear-gradient(135deg, #d4783a, #1c1814);
+    }
+    .panel.thumb .dots{ opacity:.06; }
+    .panel.thumb .cta{ background: var(--c3); }
+    .panel.fantasy{
+      background:
+        linear-gradient(180deg, rgba(10,10,10,.2), rgba(10,10,10,.55)),
+        linear-gradient(135deg, #e08a45, #5c2e12 55%, #1a1008);
+    }
     @media(max-width:860px){
       body{ padding-top: 12px; }
       .warhol-grid{ width:100%; justify-items:center; }
@@ -81,6 +93,16 @@
   <div class="wrap">
     <main>
       <div class="warhol-grid">
+        <section class="panel thumb fantasy" aria-label="Fantasy Studio">
+          <span class="dots"></span>
+          <div class="panel-inner">
+            <h2 class="title">Fantasy Studio</h2>
+            <p class="subtitle">Create your fantasy image</p>
+            <div class="row">
+              <a class="cta" href="/fantasy-studio" aria-label="Open Fantasy Studio">▶ Create</a>
+            </div>
+          </div>
+        </section>
         <section class="panel p1" aria-label="AI Palm Reader">
           <span class="dots"></span>
           <div class="panel-inner">
@@ -97,7 +119,7 @@
             <h2 class="title">Heads‑Up Poker</h2>
             <p class="subtitle">Always Know Your Opponents Strategy</p>
             <div class="row">
-              <a class="cta" href="poker-bot.html" aria-label="Play vs Bot">🤖 vs Bot</a>
+              <a class="cta" href="poker.html" aria-label="Play vs Bot">🤖 vs Bot</a>
               <a class="cta" href="lobby.html" aria-label="Play vs Human">👤 vs Human</a>
             </div>
           </div>
@@ -125,28 +147,6 @@
           </div>
         </section>
 
-        <section class="panel p1" aria-label="Fruity Football">
-          <span class="dots"></span>
-          <div class="panel-inner">
-            <h2 class="title">Fruity Football</h2>
-            <p class="subtitle">Can you reach the top?</p>
-            <div class="row">
-              <a class="cta" href="football.html" aria-label="Play Arcade Football">▶ Play</a>
-            </div>
-          </div>
-        </section>
-        
-        <section class="panel p3" aria-label="Emoji Wars">
-          <span class="dots"></span>
-          <div class="panel-inner">
-            <h2 class="title">Emoji Wars</h2>
-            <p class="subtitle">Express the sentence with 5 emojis</p>
-            <div class="row">
-              <a class="cta" href="emoji-wars.html" aria-label="Play Emoji Wars">▶ Play</a>
-            </div>
-          </div>
-        </section>
-
         
 
         <section class="panel p2" aria-label="Moral Detective">
@@ -165,7 +165,10 @@
     
     <footer></footer>
   </div>
-  <script>document.getElementById('yr').textContent = new Date().getFullYear();</script>
+  <script>
+    const yr = document.getElementById('yr');
+    if (yr) yr.textContent = new Date().getFullYear();
+  </script>
 </body>
 </html>
 

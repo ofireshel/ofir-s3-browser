@@ -1,0 +1,682 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Fantasy Studio — 33games</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --ink: #f3ebe1;
+      --muted: #a89a8c;
+      --line: rgba(243, 235, 225, 0.12);
+      --accent: #d4783a;
+      --accent-2: #e8c39a;
+      --ok: #7dba6a;
+      --bad: #d26666;
+      --panel: rgba(28, 24, 20, 0.82);
+      --stage-max: 512px;
+      --safe-b: env(safe-area-inset-bottom, 0px);
+      --safe-t: env(safe-area-inset-top, 0px);
+    }
+
+    * { box-sizing: border-box; }
+    html { -webkit-text-size-adjust: 100%; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      font-family: "Manrope", system-ui, sans-serif;
+      background:
+        radial-gradient(1200px 700px at 10% -10%, rgba(212, 120, 58, 0.18), transparent 55%),
+        radial-gradient(900px 500px at 100% 0%, rgba(80, 60, 40, 0.35), transparent 50%),
+        linear-gradient(165deg, #0e0c0a 0%, #1a1612 45%, #120f0c 100%);
+      min-height: 100vh;
+      min-height: 100dvh;
+    }
+
+    .shell {
+      width: min(1120px, calc(100% - 2rem));
+      margin: 0 auto;
+      padding: calc(2rem + var(--safe-t)) 0 calc(3rem + var(--safe-b));
+      display: grid;
+      gap: 1.5rem;
+    }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: end;
+      gap: 1rem;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 1rem;
+    }
+
+    .brand {
+      font-family: "Bebas Neue", sans-serif;
+      font-size: clamp(2.6rem, 6vw, 4rem);
+      letter-spacing: 0.04em;
+      line-height: 0.9;
+      margin: 0;
+    }
+    .brand span { color: var(--accent); }
+
+    .sub {
+      color: var(--muted);
+      font-size: 0.95rem;
+      max-width: 30rem;
+      margin: 0.4rem 0 0;
+    }
+    .sub a { color: var(--accent-2); }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 0.45rem 0.8rem;
+      color: var(--muted);
+      font-size: 0.82rem;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .dot {
+      width: 0.55rem;
+      height: 0.55rem;
+      border-radius: 50%;
+      background: var(--bad);
+      flex-shrink: 0;
+    }
+    .dot.ok { background: var(--ok); }
+
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(280px, 400px) 1fr;
+      gap: 1.25rem;
+      align-items: start;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 1.1rem;
+      backdrop-filter: blur(10px);
+    }
+
+    label {
+      display: block;
+      font-size: 0.78rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin: 0.85rem 0 0.35rem;
+    }
+    .grid-2 > div > label:first-child,
+    label:first-child { margin-top: 0; }
+
+    textarea, select, button {
+      width: 100%;
+      font: inherit;
+      color: var(--ink);
+      background: #0f0d0b;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+    }
+
+    textarea {
+      min-height: 96px;
+      resize: vertical;
+      padding: 0.85rem;
+      line-height: 1.45;
+    }
+
+    select {
+      min-height: 2.75rem;
+      padding: 0.7rem 2.1rem 0.7rem 0.8rem;
+      appearance: none;
+      -webkit-appearance: none;
+      background-image:
+        linear-gradient(45deg, transparent 50%, var(--accent-2) 50%),
+        linear-gradient(135deg, var(--accent-2) 50%, transparent 50%);
+      background-position:
+        calc(100% - 18px) calc(50% - 3px),
+        calc(100% - 12px) calc(50% - 3px);
+      background-size: 6px 6px, 6px 6px;
+      background-repeat: no-repeat;
+      background-color: #0f0d0b;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.75rem;
+    }
+
+    button#generate {
+      margin-top: 1.1rem;
+      border: none;
+      background: linear-gradient(135deg, #e08a45, #b85a24);
+      color: #1a1008;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      padding: 0.95rem 1rem;
+      min-height: 3rem;
+      cursor: pointer;
+      transition: transform 0.15s ease, filter 0.15s ease;
+      -webkit-tap-highlight-color: transparent;
+    }
+    button#generate:hover:not(:disabled) { transform: translateY(-1px); filter: brightness(1.05); }
+    button#generate:disabled { opacity: 0.55; cursor: not-allowed; }
+
+    .preview {
+      display: grid;
+      grid-template-rows: auto auto;
+      gap: 0.85rem;
+      justify-items: stretch;
+      align-content: start;
+      width: 100%;
+      max-width: var(--stage-max);
+      padding: 0.75rem;
+    }
+
+    .progress-wrap { display: none; gap: 0.55rem; width: 100%; }
+    .progress-wrap.active { display: grid; }
+
+    .bar {
+      height: 10px;
+      border-radius: 999px;
+      background: #0f0d0b;
+      border: 1px solid var(--line);
+      overflow: hidden;
+    }
+    .bar > i {
+      display: block;
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #b85a24, #e8c39a);
+      transition: width 0.25s ease;
+    }
+
+    .progress-meta {
+      display: flex;
+      justify-content: space-between;
+      gap: 0.75rem;
+      color: var(--muted);
+      font-size: 0.85rem;
+    }
+
+    .stage {
+      width: 100%;
+      aspect-ratio: 512 / 704;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+      background: #0f0d0b;
+      padding: 0;
+    }
+
+    .placeholder {
+      text-align: center;
+      color: var(--muted);
+      padding: 1.25rem 1rem;
+      width: 100%;
+    }
+    .placeholder strong {
+      display: block;
+      color: var(--accent-2);
+      font-family: "Bebas Neue", sans-serif;
+      font-size: clamp(1.5rem, 5vw, 2rem);
+      letter-spacing: 0.05em;
+      margin-bottom: 0.35rem;
+    }
+
+    .stage img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: block;
+      animation: rise 0.45s ease;
+    }
+
+    @keyframes rise {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .error {
+      color: #ffb4b4;
+      background: rgba(210, 102, 102, 0.12);
+      border: 1px solid rgba(210, 102, 102, 0.35);
+      border-radius: 12px;
+      padding: 0.75rem 0.9rem;
+      display: none;
+      margin-top: 0.8rem;
+      white-space: pre-wrap;
+      font-size: 0.9rem;
+      line-height: 1.4;
+    }
+    .error.show { display: block; }
+
+    @media (max-width: 860px) {
+      .shell {
+        width: 100%;
+        padding: calc(0.85rem + var(--safe-t)) 0.85rem calc(1.25rem + var(--safe-b));
+        gap: 0.75rem;
+      }
+
+      header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.55rem;
+        padding-bottom: 0.65rem;
+      }
+
+      .brand {
+        font-size: clamp(2rem, 10vw, 2.55rem);
+      }
+
+      .sub {
+        font-size: 0.84rem;
+        line-height: 1.35;
+        max-width: none;
+      }
+
+      .status-pill {
+        align-self: flex-start;
+        font-size: 0.76rem;
+        padding: 0.32rem 0.65rem;
+      }
+
+      .layout {
+        grid-template-columns: 1fr;
+        gap: 0.75rem;
+      }
+
+      /* Form first so filters aren't buried under a tall preview */
+      .preview {
+        order: 0;
+        max-width: none;
+        padding: 0.55rem;
+        border-radius: 14px;
+      }
+
+      #form {
+        order: -1;
+        padding: 0.8rem;
+        border-radius: 14px;
+        padding-bottom: 1rem;
+      }
+
+      .panel {
+        border-radius: 14px;
+        padding: 0.8rem;
+      }
+
+      .stage {
+        border-radius: 10px;
+      }
+
+      .placeholder {
+        padding: 0.9rem 0.75rem;
+      }
+
+      .grid-2 {
+        grid-template-columns: 1fr 1fr;
+        gap: 0.5rem 0.6rem;
+      }
+
+      label {
+        font-size: 0.68rem;
+        margin: 0.5rem 0 0.25rem;
+      }
+
+      select {
+        min-height: 2.75rem;
+        font-size: 16px; /* avoids iOS zoom on focus */
+        padding: 0.5rem 2rem 0.5rem 0.65rem;
+        border-radius: 10px;
+      }
+
+      button#generate {
+        position: static;
+        margin-top: 0.95rem;
+        width: 100%;
+        min-height: 3rem;
+        border-radius: 12px;
+        box-shadow: none;
+      }
+
+      .error {
+        margin-top: 0.7rem;
+        margin-bottom: 0;
+      }
+    }
+
+    @media (max-width: 380px) {
+      .grid-2 { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header>
+      <div>
+        <h1 class="brand">FANTASY <span>STUDIO</span></h1>
+        <p class="sub">Pick the scene, mood, and look. We’ll build the image for you. <a href="games.html">← Games</a></p>
+      </div>
+      <div class="status-pill" id="health">
+        <span class="dot" id="healthDot"></span>
+        <span id="healthText">Checking…</span>
+      </div>
+    </header>
+
+    <div class="layout">
+      <form class="panel" id="form">
+        <div class="grid-2">
+          <div>
+            <label for="age">Age</label>
+            <select id="age">
+              <option value="21">21</option>
+              <option value="25">25</option>
+              <option value="30" selected>30</option>
+              <option value="35">35</option>
+              <option value="40">40</option>
+              <option value="45">45</option>
+              <option value="50">50</option>
+            </select>
+          </div>
+          <div>
+            <label for="nationality">Nationality</label>
+            <select id="nationality">
+              <option value="american" selected>American</option>
+              <option value="british">British</option>
+              <option value="irish">Irish</option>
+              <option value="french">French</option>
+              <option value="italian">Italian</option>
+              <option value="spanish">Spanish</option>
+              <option value="portuguese">Portuguese</option>
+              <option value="german">German</option>
+              <option value="dutch">Dutch</option>
+              <option value="swedish">Swedish</option>
+              <option value="norwegian">Norwegian</option>
+              <option value="polish">Polish</option>
+              <option value="russian">Russian</option>
+              <option value="ukrainian">Ukrainian</option>
+              <option value="greek">Greek</option>
+              <option value="turkish">Turkish</option>
+              <option value="israeli">Israeli</option>
+              <option value="egyptian">Egyptian</option>
+              <option value="moroccan">Moroccan</option>
+              <option value="nigerian">Nigerian</option>
+              <option value="ethiopian">Ethiopian</option>
+              <option value="south_african">South African</option>
+              <option value="indian">Indian</option>
+              <option value="pakistani">Pakistani</option>
+              <option value="chinese">Chinese</option>
+              <option value="japanese">Japanese</option>
+              <option value="korean">Korean</option>
+              <option value="thai">Thai</option>
+              <option value="brazilian">Brazilian</option>
+              <option value="mexican">Mexican</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div>
+            <label for="background">Background</label>
+            <select id="background">
+              <option value="beach" selected>Beach</option>
+              <option value="city">City street</option>
+              <option value="desert">Desert</option>
+              <option value="forest">Forest</option>
+              <option value="mountains">Mountains</option>
+              <option value="lake">Lakeside</option>
+              <option value="rooftop">City rooftop</option>
+              <option value="bedroom">Bedroom</option>
+              <option value="palace">Fantasy palace</option>
+              <option value="castle">Castle courtyard</option>
+              <option value="tavern">Medieval tavern</option>
+              <option value="spaceship">Spaceship interior</option>
+            </select>
+          </div>
+          <div>
+            <label for="event">Historical event</label>
+            <select id="event">
+              <option value="none" selected>None</option>
+              <option value="moon_landing">Moon landing (1969)</option>
+              <option value="berlin_wall">Fall of the Berlin Wall</option>
+              <option value="woodstock">Woodstock festival</option>
+              <option value="roman_forum">Ancient Roman Forum</option>
+              <option value="ww2_ve_day">VE-Day 1945</option>
+              <option value="titanic">Titanic on the horizon</option>
+              <option value="jfk_motorcade">1960s motorcade</option>
+              <option value="bastille">Storming of the Bastille</option>
+              <option value="wright_flight">Wright brothers first flight</option>
+              <option value="gold_rush">California Gold Rush</option>
+              <option value="eiffel_opening">Eiffel Tower opening (1889)</option>
+              <option value="independence_hall">Signing of the Declaration</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div>
+            <label for="lighting">Lighting</label>
+            <select id="lighting">
+              <option value="golden_hour" selected>Golden hour</option>
+              <option value="midday">Bright midday</option>
+              <option value="sunset">Dramatic sunset</option>
+              <option value="moonlit">Moonlit night</option>
+              <option value="neon">Neon night</option>
+              <option value="soft_window">Soft window light</option>
+              <option value="candle">Candlelight</option>
+              <option value="storm">Stormy light</option>
+            </select>
+          </div>
+          <div>
+            <label for="weather">Weather / air</label>
+            <select id="weather">
+              <option value="clear" selected>Clear</option>
+              <option value="windy">Windy</option>
+              <option value="rain">Light rain</option>
+              <option value="fog">Foggy mist</option>
+              <option value="snow">Light snow</option>
+              <option value="humid">Warm humid air</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div>
+            <label for="body_type">Body type</label>
+            <select id="body_type">
+              <option value="slim">Slim</option>
+              <option value="fit" selected>Fit / athletic</option>
+              <option value="curvy">Curvy</option>
+              <option value="petite">Petite</option>
+              <option value="tall_slim">Tall & slim</option>
+              <option value="voluptuous">Voluptuous</option>
+              <option value="muscular">Muscular</option>
+              <option value="average">Average</option>
+            </select>
+          </div>
+          <div>
+            <label for="style">Look</label>
+            <select id="style">
+              <option value="candid" selected>Candid photo</option>
+              <option value="cinematic">Cinematic still</option>
+              <option value="fantasy_art">Fantasy art</option>
+              <option value="hdr">HDR realistic</option>
+              <option value="film">35mm film</option>
+            </select>
+          </div>
+        </div>
+
+        <button id="generate" type="submit">Generate</button>
+        <div class="error" id="error"></div>
+      </form>
+
+      <section class="panel preview">
+        <div class="progress-wrap" id="progressWrap">
+          <div class="progress-meta">
+            <span id="progressLabel">Queued…</span>
+            <span id="progressPct">0%</span>
+          </div>
+          <div class="bar"><i id="progressBar"></i></div>
+        </div>
+
+        <div class="stage" id="stage">
+          <div class="placeholder" id="placeholder">
+            <strong>Ready</strong>
+            Choose a scene and generate. Your image will appear here.
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const form = $("form");
+    const generateBtn = $("generate");
+    const errorEl = $("error");
+    const progressWrap = $("progressWrap");
+    const progressBar = $("progressBar");
+    const progressPct = $("progressPct");
+    const progressLabel = $("progressLabel");
+    const stage = $("stage");
+    const healthDot = $("healthDot");
+    const healthText = $("healthText");
+    function showError(msg) {
+      errorEl.textContent = msg || "";
+      errorEl.classList.toggle("show", !!msg);
+    }
+
+    function setProgress(percent, label) {
+      progressWrap.classList.add("active");
+      const pct = Math.max(0, Math.min(100, percent || 0));
+      progressBar.style.width = pct + "%";
+      progressPct.textContent = pct + "%";
+      if (label) progressLabel.textContent = label;
+    }
+
+    function showImage(url) {
+      stage.innerHTML = "";
+      const img = document.createElement("img");
+      img.alt = "Generated image";
+      img.src = url;
+      stage.appendChild(img);
+    }
+
+    async function checkHealth() {
+      try {
+        const res = await fetch("/api/fantasy/health");
+        const data = await res.json();
+        if (data.comfy) {
+          healthDot.classList.add("ok");
+          healthText.textContent = "Ready";
+        } else {
+          healthDot.classList.remove("ok");
+          healthText.textContent = "Engine offline";
+        }
+      } catch {
+        healthDot.classList.remove("ok");
+        healthText.textContent = "Offline";
+      }
+    }
+
+    async function pollProgress(promptId) {
+      while (true) {
+        const res = await fetch("/api/fantasy/progress?prompt_id=" + encodeURIComponent(promptId));
+        const raw = await res.text();
+        let data = {};
+        try {
+          data = raw ? JSON.parse(raw) : {};
+        } catch {
+          throw new Error("Lost connection to Fantasy Studio while generating.");
+        }
+        if (!res.ok) throw new Error(data.error || "Progress check failed");
+        const status = data.status || "unknown";
+        const percent = data.percent || 0;
+
+        if (status === "queued") setProgress(Math.max(percent, 2), "Queued…");
+        else if (status === "running") setProgress(Math.max(percent, 5), "Creating image…");
+        else if (status === "finalizing") setProgress(Math.max(percent, 95), "Finishing…");
+        else if (status === "error") throw new Error(data.error || "Generation failed");
+        else if (status === "done") {
+          setProgress(100, "Done");
+          const img = (data.images || [])[0];
+          if (!img) throw new Error("No image returned");
+          const url = `/api/fantasy/image?filename=${encodeURIComponent(img.filename)}&subfolder=${encodeURIComponent(img.subfolder || "")}&type=${encodeURIComponent(img.type || "output")}`;
+          showImage(url);
+          return data;
+        } else {
+          setProgress(percent, status);
+        }
+        await new Promise((r) => setTimeout(r, 450));
+      }
+    }
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      showError("");
+      generateBtn.disabled = true;
+      if (!stage.querySelector("img")) {
+        stage.innerHTML = `<div class="placeholder"><strong>Working</strong>Building your scene…</div>`;
+      }
+      setProgress(1, "Starting…");
+
+      const payload = {
+        age: $("age").value,
+        nationality: $("nationality").value,
+        background: $("background").value,
+        event: $("event").value,
+        lighting: $("lighting").value,
+        weather: $("weather").value,
+        body_type: $("body_type").value,
+        style: $("style").value,
+      };
+
+      try {
+        const res = await fetch("/api/fantasy/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const raw = await res.text();
+        let data = {};
+        try {
+          data = raw ? JSON.parse(raw) : {};
+        } catch {
+          throw new Error(
+            res.ok
+              ? "Unexpected response from Fantasy Studio."
+              : "Fantasy backend unreachable. The home tunnel may be offline — restart it and try again."
+          );
+        }
+        if (!res.ok) throw new Error(data.error || "Failed to queue");
+        if (!data.prompt_id) throw new Error("No job id returned from Fantasy Studio.");
+        progressLabel.textContent = "Queued";
+        await pollProgress(data.prompt_id);
+      } catch (err) {
+        showError(err.message || String(err));
+        progressLabel.textContent = "Failed";
+      } finally {
+        generateBtn.disabled = false;
+        generateBtn.textContent = "Generate";
+      }
+    });
+
+    checkHealth();
+    setInterval(checkHealth, 8000);
+  </script>
+</body>
+</html>
