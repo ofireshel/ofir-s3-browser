@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "dgSpecHash": "+zNkpwg4eG0=",
+  "success": true,
+  "projectFilePath": "/workspace/PiWinApp/PiWinApp.csproj",
+  "expectedPackageFiles": [
+    "/home/ubuntu/.nuget/packages/microsoft.windowsdesktop.app.ref/8.0.19/microsoft.windowsdesktop.app.ref.8.0.19.nupkg.sha512"
+  ],
+  "logs": []
+}
