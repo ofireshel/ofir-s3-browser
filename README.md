@@ -2,7 +2,7 @@
 
 Source for **https://33games.win** (Cloudflare Pages project `lexiorbit`).
 
-This tree is synced from the live site, including `/fantasy-studio` and the `/api/fantasy/*` ComfyUI proxy. Future deploys from `main` should match production pages. Keep the existing Pages secrets (`OPENAI_API_KEY`, `COMFY_URL`, and any `CF_*` tokens) — those values are not in git.
+This tree is synced from the live site, including `/fantasy-studio` and the `/api/fantasy/*` proxy to the home Fantasy backend (`fantasy-home.33games.win`). Keep the existing Pages secrets (`OPENAI_API_KEY`, `FANTASY_BACKEND_URL`, `FANTASY_SHARED_SECRET`, and any `CF_*` tokens) — those values are not in git.
 
 ## Deploy to Cloudflare Pages (production)
 
@@ -12,13 +12,7 @@ Use the existing Pages project `lexiorbit`:
 npx --yes wrangler@latest pages deploy . --project-name lexiorbit --branch main --commit-dirty=true
 ```
 
-Fantasy Studio talks to home ComfyUI through a Cloudflare tunnel. The worker looks up the tunnel from Pages secrets (any of `COMFY_URL`, `TUNNEL_URL`, `HOME_TUNNEL`, …), KV, or named Cloudflare tunnels. Do not deploy a wrangler `[vars]` block that omits existing production env vars — that can wipe a plaintext `COMFY_URL`.
-
-If health still shows offline while Comfy is running, paste the current `https://` tunnel URL in Fantasy Studio (Connect local engine), or:
-
-```bash
-npx wrangler pages secret put COMFY_URL --project-name lexiorbit
-```
+Fantasy Studio on 33games.win is a thin proxy to the home machine. cloudflared tunnel `fantasy-home` must be running (`http://127.0.0.1:7860`). The Pages worker authenticates with secret `FANTASY_SHARED_SECRET` (`X-Fantasy-Key`).
 
 - Requires Node.js and npm.
 - Uses the current working directory as the build output (`wrangler.toml` sets `pages_build_output_dir = "."`).
